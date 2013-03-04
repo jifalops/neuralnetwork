@@ -20,32 +20,35 @@ classdef NeuralNetwork < handle
     end
     
     properties (SetAccess = private)
-        % Three dimensional matrix of outputs, corresponds to errorHistory.        
-        % x = Each "row"    is a sample (only one for batch mode)
-        % y = Each "column" is an epoch
-        % z = Each "layer"  is an output neuron
-        outputHistory;
+        trainingData;
+        validationData;
+        nInputs;
+        nOutputs;       
+        nHidden;
         
-        % Three dimensional matrix of errors, corresponds to outputHistory.       
-        % x = Each "row"    is a sample (only one for batch mode)
-        % y = Each "column" is an epoch
-        % z = Each "layer"  is an output neuron
-        errorHistory;
+        % Four dimensional matrix of outputs, and their errors.        
+        % 1 - Each is a sample (only one for batch mode)
+        % 2 - Each is an epoch
+        % 3 - Each is an output neuron
+        % 4 - Either the calculated output (1) or the error of that output(2)
+        trainingResults;      
         
-        % Four dimensional matrix where each item in the fourth dimension is
-        % an instance of a three dimensional weight matrix.
-        weightHistory;
+        % Five dimensional matrix where each item in the fourth dimension is
+        % an instance of a three dimensional weight matrix. Each element in
+        % the fifth dimension is either the weight itself (1) or the
+        % derivative of the error with respect to that weight (2). Weight 
+        % matrices are described further below.
+        weightHistory;        
         
-        % Four dimensional matrix where each item in the fourth dimension is
-        % an instance of a three dimensional derivative matrix, in the same 
-        % format as the weight matrix.
-        derivativeHistory;
+        % Four dimensional matrix of outputs, and their errors. See
+        % trainingResults for more information.
+        validationResults;        
     end
     
     methods
         
         %%
-        % train()   - Train the neural network using the given data. 
+        % train()   - Train this neural network using the back-propagation algorithm.
         %
         % Required parameters:
         %   data  - m by n matrix; m = samples, n = inputs and outputs
@@ -87,13 +90,13 @@ classdef NeuralNetwork < handle
         %               Layer 4: x = 1, y = 2       (none, output)
         %             10x3x4 or 120 is much closer to 62 than 400 was.
         %             There is no added computational expense because no 
-        %             lookup is needed.
+        %             lookup is needed.        
         function [this weights] = train(this, data, nInputs, nHidden, initialWeights)
             
             % ===================================
             % Validate input parameters/arguments
             % and set initial state.
-            % ===================================
+            % ===================================                        
             
             % data
             if nargin < 2 || isempty(data) 
@@ -142,6 +145,23 @@ classdef NeuralNetwork < handle
                 end               
             end
             
+            % -------------------------------------------------------------
+            % Reset information about previous training/validation attempts
+            % -------------------------------------------------------------
+            
+            this.trainingData = data;
+            this.nInputs = nInputs;
+            this.nOutputs = nOutputs;
+            this.nHidden = nHidden;            
+            this.validationData = null(1);
+            
+            this.trainingResults = zeros(nSamples, this.maxEpochs, ...
+                nOutputs, 2);
+            this.validationResults = this.trainingResults;
+            
+            this.weightHistory = zeros(size(weights));
+            
+            
             
             % ===========================================================
             % Train using the specified mode and limits of this instance.
@@ -188,6 +208,7 @@ classdef NeuralNetwork < handle
                        plot(this.trainingErrors(iSample, :)); 
                     end
                 case NeuralNetwork.TRAINING_MODE_BATCH
+                    error('train(): Batch mode is not implemented yet.');
             end
 
             
@@ -295,6 +316,7 @@ classdef NeuralNetwork < handle
         %%
         function [this derivatives] = computeDerivatives(this, y, inputs, ...
                 outputs, weights, z)
+            
             nInputs = size(inputs, 2);
             nHidden = size(weights, 1);
             nOutputs = size(outputs, 2);
@@ -332,34 +354,41 @@ classdef NeuralNetwork < handle
             end
         end
         
+        %%
         function [this weights] = updateWeights(this, weights, derivatives, nInputs, nOutputs)            
             nHidden = size(weights, 1);            
-                        
+                 
+            % Update input-hidden link weights
             for iInput = 1 : nInputs                
                 for jHidden = 1 : nHidden
-                    
-                    % Update input-hidden link weights
                     weights(jHidden, iInput, 1) = weights(jHidden, iInput, 1) ...
                         - derivatives(jHidden, iInput, 1) * this.alpha;
-
-                    if iInput == 1
-                        
-                        % Update hidden neuron biases
-                        weights(jHidden, 1, 2) = weights(jHidden, 1, 2) ...
-                            - derivatives(jHidden, 1, 2) * this.alpha;
-                                                
-                        for kOutput = 1 : nOutputs                        
-                            % Update hidden-output link weights
-                            weights(jHidden, kOutput, 3) = weights(jHidden, kOutput, 3) ...
-                                - derivatives(jHidden, kOutput, 3) * this.alpha;
-                            w4(kOutput) = w4(kOutput) - e4(kOutput) * this.alpha; 
-                        end
-                    end
                 end
+            end
+            
+            
+            for jHidden = 1 : nHidden
+                
+                % Update hidden neuron biases
+                weights(jHidden, 1, 2) = weights(jHidden, 1, 2) ...
+                    - derivatives(jHidden, 1, 2) * this.alpha;
+
+                % Update hidden-output link weights
+                for kOutput = 1 : nOutputs                        
+                    weights(jHidden, kOutput, 3) = weights(jHidden, kOutput, 3) ...
+                        - derivatives(jHidden, kOutput, 3) * this.alpha;                    
+                end
+            end
+            
+             % Update output neuron biases
+            for kOutput = 1 : nOutputs               
+                weights(1, kOutput, 4) = weights(1, kOutput, 4) ...
+                    - derivatives(1, kOutput, 4) * this.alpha;  
             end
             
         end
         
+        %%
         function [this validation] = verror(inputs, outputs)
            for i =  1 : size(outputs, 1)
               for j = 1 : size(outputs, 2)

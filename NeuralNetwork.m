@@ -20,32 +20,35 @@ classdef NeuralNetwork < handle
     end
     
     properties (SetAccess = private)
-        % Three dimensional matrix of outputs, corresponds to errorHistory.        
-        % x = Each "row"    is a sample (only one for batch mode)
-        % y = Each "column" is an epoch
-        % z = Each "layer"  is an output neuron
-        outputHistory;
+        trainingData;
+        validationData;
+        nInputs;
+        nOutputs;       
+        nHidden;
         
-        % Three dimensional matrix of errors, corresponds to outputHistory.       
-        % x = Each "row"    is a sample (only one for batch mode)
-        % y = Each "column" is an epoch
-        % z = Each "layer"  is an output neuron
-        errorHistory;
+        % Four dimensional matrix of outputs, and their errors.        
+        % 1 - Each is a sample (only one for batch mode)
+        % 2 - Each is an epoch
+        % 3 - Each is an output neuron
+        % 4 - Either the calculated output (1) or the error of that output(2)
+        trainingResults;      
         
-        % Four dimensional matrix where each item in the fourth dimension is
-        % an instance of a three dimensional weight matrix.
-        weightHistory;
+        % Five dimensional matrix where each item in the fourth dimension is
+        % an instance of a three dimensional weight matrix. Each element in
+        % the fifth dimension is either the weight itself (1) or the
+        % derivative of the error with respect to that weight (2). Weight 
+        % matrices are described further below.
+        weightHistory;        
         
-        % Four dimensional matrix where each item in the fourth dimension is
-        % an instance of a three dimensional derivative matrix, in the same 
-        % format as the weight matrix.
-        derivativeHistory;
+        % Four dimensional matrix of outputs, and their errors. See
+        % trainingResults for more information.
+        validationResults;        
     end
     
     methods
         
         %%
-        % train()   - Train the neural network using the given data. 
+        % train()   - Train this neural network using the back-propagation algorithm.
         %
         % Required parameters:
         %   data  - m by n matrix; m = samples, n = inputs and outputs
@@ -93,7 +96,7 @@ classdef NeuralNetwork < handle
             % ===================================
             % Validate input parameters/arguments
             % and set initial state.
-            % ===================================
+            % ===================================                        
             
             % data
             if nargin < 2 || isempty(data) 
@@ -141,6 +144,23 @@ classdef NeuralNetwork < handle
                     weights = initialWeights;
                 end               
             end
+            
+            % -------------------------------------------------------------
+            % Reset information about previous training/validation attempts
+            % -------------------------------------------------------------
+            
+            this.trainingData = data;
+            this.nInputs = nInputs;
+            this.nOutputs = nOutputs;
+            this.nHidden = nHidden;            
+            this.validationData = null(1);
+            
+            this.trainingResults = zeros(nSamples, this.maxEpochs, ...
+                nOutputs, 2);
+            this.validationResults = this.trainingResults;
+            
+            this.weightHistory = zeros(size(weights));
+            
             
             
             % ===========================================================
