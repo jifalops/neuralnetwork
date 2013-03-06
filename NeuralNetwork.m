@@ -20,29 +20,34 @@ classdef NeuralNetwork < handle
     end
     
     properties (SetAccess = private)
+        % Full set of input and output data used for training or validation
         trainingData;
         validationData;
+        
+        % Number of inputs, outputs, and hidden neurons
         nInputs;
         nOutputs;       
         nHidden;
         
-        % Four dimensional matrix of outputs, and their errors.        
+        % Several Three-dimensional matrices of outputs and their respective errors
+        % for both training and validation.
         % 1 - Each is a sample (only one for batch mode)
         % 2 - Each is an epoch
-        % 3 - Each is an output neuron
-        % 4 - Either the calculated output (1) or the error of that output(2)
-        trainingResults;      
+        % 3 - Each is an output neuron        
+        trainingOutputs;        
+        trainingErrors;
         
-        % Five dimensional matrix where each item in the fourth dimension is
-        % an instance of a three dimensional weight matrix. Each element in
-        % the fifth dimension is either the weight itself (1) or the
-        % derivative of the error with respect to that weight (2). Weight 
-        % matrices are described further below.
-        weightHistory;        
+        validationOutputs;        
+        validationErrors;        
         
-        % Four dimensional matrix of outputs, and their errors. See
-        % trainingResults for more information.
-        validationResults;        
+        % Four dimensional matrix where each item in the fourth dimension is
+        % an instance of a three dimensional weight matrix. These apply 
+        % only to training, not validation. Weight matrices are described 
+        % in further detail below.
+        weightHistory;    
+        derivativeHistory;    
+        
+        hasTrained;
     end
     
     methods
@@ -145,23 +150,28 @@ classdef NeuralNetwork < handle
                 end               
             end
             
-            % -------------------------------------------------------------
+            
+            % 
             % Reset information about previous training/validation attempts
-            % -------------------------------------------------------------
+            % 
             
-            this.trainingData = data;
-            this.nInputs = nInputs;
-            this.nOutputs = nOutputs;
-            this.nHidden = nHidden;            
-            this.validationData = null(1);
+            this.trainingData      = data;
+            this.validationData    = null(1);
             
-            this.trainingResults = zeros(nSamples, this.maxEpochs, ...
-                nOutputs, 2);
-            this.validationResults = this.trainingResults;
+            this.nInputs           = nInputs;
+            this.nOutputs          = nOutputs;
+            this.nHidden           = nHidden;            
+                        
+            this.trainingOutputs   = null(1);
+            this.trainingErrors    = null(1);
             
-            this.weightHistory = zeros(size(weights));
+            this.validationOutputs = null(1);
+            this.validationErrors  = null(1);
             
-            
+            this.weightHistory     = zeros(size(weights));
+            this.derivativeHistory = zeros(size(weights));
+                        
+            hasTrained             = 0;
             
             % ===========================================================
             % Train using the specified mode and limits of this instance.
