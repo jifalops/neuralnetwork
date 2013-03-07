@@ -20,7 +20,7 @@ classdef NeuralNetwork < handle
     end
     
     properties (SetAccess = private)
-        % Full set of input and output data used for training or validation
+        % Full history of input and output data used for training or validation
         trainingData;
         validationData;
         
@@ -171,7 +171,8 @@ classdef NeuralNetwork < handle
             this.weightHistory     = zeros(size(weights));
             this.derivativeHistory = zeros(size(weights));
                         
-            hasTrained             = 0;
+            this.hasTrained             = 0;
+            
             
             % ===========================================================
             % Train using the specified mode and limits of this instance.
@@ -222,9 +223,7 @@ classdef NeuralNetwork < handle
             end
 
             
-            
-            
-            % calculate output using intputs and weights
+            this.hasTrained = 1;
         end
     end
     
