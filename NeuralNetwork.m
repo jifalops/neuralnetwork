@@ -81,6 +81,9 @@ classdef NeuralNetwork < handle
         weights;
         finalTrainingError;
         finalValidationError;
+                
+        avgTrainingError; % of last epoch
+        avgValidationError;
     end
     
     methods
@@ -282,7 +285,8 @@ classdef NeuralNetwork < handle
             end
 
             this.weights = weights;
-            this.finalTrainingError = outputError;            
+            this.finalTrainingError = outputError;   
+            this.avgTrainingError = mean(this.trainingErrors(:, iEpoch - 1));
             this.hasTrained = 1;
         end
         
@@ -326,15 +330,24 @@ classdef NeuralNetwork < handle
             end
             
             this.finalValidationError = outputError;
+            outputError = mean(this.validationErrors);
         end
         
         %%
         function plot(this)            
-            
+            figure;
             switch this.trainingMode
                 case NeuralNetwork.TRAINING_MODE_SAMPLE_BY_SAMPLE                       
-                    subplot(2, 1, 1), plot(mean(this.trainingErrors, 1));
+                    subplot(2, 1, 1), errorbar(mean(this.trainingErrors, 1), std(this.trainingErrors, 0, 1), ':');
+                    hold on                    
+                    plot(mean(this.trainingErrors, 1), 'r');     
+                    hold off
                     subplot(2, 1, 2), plot(this.validationErrors);
+                    hold on
+                    avg = mean(this.validationErrors);
+                    y(1:this.numSamplesValidation) = avg;
+                    plot(y, 'r');
+                    hold off
 
                 case NeuralNetwork.TRAINING_MODE_BATCH
                     error('plot(): Batch mode is not implemented yet.');
@@ -442,10 +455,9 @@ classdef NeuralNetwork < handle
         %% Compute the error of one sample
         function err = computeError(this, y, outputs)
             err = 0;
-            for iOutput = 1 : length(outputs)
+            for iOutput = 1 : size(outputs, 2)
                err = err + .5 * (y(iOutput) - outputs(iOutput))^2;
             end
-            %err =  err ^ 2;
         end
         
         %%
