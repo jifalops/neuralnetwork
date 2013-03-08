@@ -8,6 +8,23 @@ classdef NeuralNetwork < handle
        TERMINATION_MODE_ERROR     = 2;
        TERMINATION_MODE_EITHER    = 3;
        TERMINATION_MODE_BOTH      = 4;
+       
+       % The types of histories to remember. These can help analyze the
+       % network, but may cost vast amounts of memory for large problems.
+       % Using flags for flexibility.
+       HISTORY_TYPE_NONE               = bin2dec('000000');
+       HISTORY_TYPE_TRAINING_OUTPUTS   = bin2dec('000001');
+       HISTORY_TYPE_TRAINING_ERRORS    = bin2dec('000010');
+       HISTORY_TYPE_VALIDATION_OUTPUTS = bin2dec('000100');
+       HISTORY_TYPE_VALIDATION_ERRORS  = bin2dec('001000');
+       HISTORY_TYPE_WEIGHTS            = bin2dec('010000');
+       HISTORY_TYPE_DERIVATIVES        = bin2dec('100000');       
+       % Combination histories
+       HISTORY_TYPE_TRAINING           = bin2dec('000011');
+       HISTORY_TYPE_VALIDATION         = bin2dec('001100');
+       HISTORY_TYPE_OUTPUTS            = bin2dec('000101');
+       HISTORY_TYPE_ERRORS             = bin2dec('001010');
+       HISTORY_TYPE_ALL                = bin2dec('111111');
     end
 
     properties
@@ -16,38 +33,54 @@ classdef NeuralNetwork < handle
         maxEpochs           = 100;
         maxError            = 0.01;
         alpha               = 0.1;
-        %trackTrainingErrors = 1;
+        histories           = NeuralNetwork.HISTORY_TYPE_ERRORS;
     end
     
     properties (SetAccess = private)
-        % Full set of input and output data used for training or validation
+        % Full history of input and output data used for training or validation
         trainingData;
         validationData;
         
         % Number of inputs, outputs, and hidden neurons
-        nInputs;
-        nOutputs;       
-        nHidden;
+        numInputs;
+        numOutputs;       
+        numHidden;
+        numSamplesTraining;
+        numSamplesValidation;
         
-        % Several Three-dimensional matrices of outputs and their respective errors
-        % for both training and validation.
-        % 1 - Each is a sample (only one for batch mode)
+        % Three-dimensional matrices of outputs for training and validation.
+        % 1 - Each is a sample (only 1 for batch mode)
         % 2 - Each is an epoch
         % 3 - Each is an output neuron        
-        trainingOutputs;        
+        trainingOutputs;                
+        
+        % Two-dimensional matrices of errors for the above outputs
+        % 1 - sample
+        % 2 - epoch
         trainingErrors;
         
-        validationOutputs;        
+        % 1 - sample
+        % 2 - output
+        validationOutputs;
+        
+        % 1 - output error
         validationErrors;        
         
-        % Four dimensional matrix where each item in the fourth dimension is
-        % an instance of a three dimensional weight matrix. These apply 
-        % only to training, not validation. Weight matrices are described 
-        % in further detail below.
+        % Five-dimensional matrices, first three dimensions are an instance
+        % of a weight matrix, fourth dimension is the epoch index, fifth
+        % dimension is the sample index (always 1 for batch mode).
+        % 
+        % These apply only to training, not validation. Weight matrices are 
+        % described in further detail below.
         weightHistory;    
         derivativeHistory;    
         
-        hasTrained;
+        % Used to determine if it is ok to run validation
+        hasTrained = 0;
+        
+        weights;
+        finalTrainingError;
+        finalValidationError;
     end
     
     methods
@@ -58,9 +91,9 @@ classdef NeuralNetwork < handle
         % Required parameters:
         %   data  - m by n matrix; m = samples, n = inputs and outputs
         %           (input columns and then output columns).
-        %   nInputs - the number of inputs in the data table.      
+        %   numInputs - the number of inputs in the data table.      
         % Optional parameters:
-        %   nHidden - Number of hidden neurons. Default is the mean number
+        %   numHidden - Number of hidden neurons. Default is the mean number
         %             of inputs and output neurons rounded up (ceiling). 
         %   weights - The initial weights to use, given as a three dimensional
         %             matrix, x-y-z, where z always has the following layers:        
@@ -87,7 +120,7 @@ classdef NeuralNetwork < handle
         %             here is to have the number of hidden neurons always
         %             be on the x axis; input and output neurons always
         %             reside on the y axis. For one dimensional layers, the
-        %             number 1 is used for the type of neuron not being
+        %             number 1 takes the place of the type of neuron not being
         %             used. The resultant matrix is:
         %               Layer 1: x = 10, y = 3      (hidden, input)
         %               Layer 2: x = 10, y = 1      (hidden, none)
@@ -95,8 +128,9 @@ classdef NeuralNetwork < handle
         %               Layer 4: x = 1, y = 2       (none, output)
         %             10x3x4 or 120 is much closer to 62 than 400 was.
         %             There is no added computational expense because no 
-        %             lookup is needed.        
-        function [this weights] = train(this, data, nInputs, nHidden, initialWeights)
+        %             lookup is needed.
+        function [this weights outputError] = train(this, data, numInputs, ...
+                numHidden, initialWeights)
             
             % ===================================
             % Validate input parameters/arguments
@@ -108,40 +142,42 @@ classdef NeuralNetwork < handle
                 error('train(): Cannot train without data.');
             end
             
-            % nInputs
-            if nargin < 3 || nInputs < 1
+            % numInputs
+            if nargin < 3 || numInputs < 1
                error('train(): There must be at least one input.');
             end            
             
-                % nOutputs
-                nOutputs = size(data, 2) - nInputs;
-                if nOutputs < 1
+                % numOutputs
+                numOutputs = size(data, 2) - numInputs;
+                if numOutputs < 1
                    error('train(): There must be at least one output.'); 
                 end
 
-                % nSamples
-                nSamples = size(data, 1);
-                if nSamples < 1
+                % numSamples
+                numSamples = size(data, 1);
+                if numSamples < 1
                     error('train(): There must be at least one sample.');
                 end
                 
                 % inputs
-                inputs = data(:, 1:nInputs);
+                inputs = data(:, 1:numInputs);
                 
                 % outputs
-                outputs = data(:, (nInputs + 1):(nInputs + nOutputs));
+                outputs = data(:, (numInputs + 1):(numInputs + numOutputs));
             
-            % nHidden
-            if nargin >= 4 && nHidden < 1
-                error('train(): There must be at least one hidden neuron.');
+            % numHidden
+            if nargin >= 4                
+                if numHidden < 1
+                    error('train(): There must be at least one hidden neuron.');                 
+                end
             else
                 % Default number of hidden neurons is the average number of 
                 % inputs and outputs, rounded up.
-                nHidden = ceil(mean([nInputs nOutputs]));
+                numHidden = ceil(mean([numInputs numOutputs]));
             end
             
             % initialWeights
-            weights = this.makeWeightMatrix(nInputs, nHidden, nOutputs);            
+            weights = this.makeWeightMatrix(numInputs, numHidden, numOutputs);  
             if nargin >= 5 
                 if size(initialWeights) ~= size(weights)
                     error('train(): Size of weight matrix should be %s.', size(weights));
@@ -149,29 +185,33 @@ classdef NeuralNetwork < handle
                     weights = initialWeights;
                 end               
             end
-            
-            
+                       
             % 
             % Reset information about previous training/validation attempts
             % 
             
-            this.trainingData      = data;
-            this.validationData    = null(1);
+            this.trainingData         = data;
+            this.validationData       = null(1);
             
-            this.nInputs           = nInputs;
-            this.nOutputs          = nOutputs;
-            this.nHidden           = nHidden;            
+            this.numInputs            = numInputs;
+            this.numOutputs           = numOutputs;
+            this.numHidden            = numHidden;    
+            this.numSamplesTraining   = numSamples;
                         
-            this.trainingOutputs   = null(1);
-            this.trainingErrors    = null(1);
+            this.trainingOutputs      = null(1);
+            this.trainingErrors       = null(1);
             
-            this.validationOutputs = null(1);
-            this.validationErrors  = null(1);
+            this.validationOutputs    = null(1);
+            this.validationErrors     = null(1);
             
-            this.weightHistory     = zeros(size(weights));
-            this.derivativeHistory = zeros(size(weights));
+            this.weightHistory        = zeros(size(weights));
+            this.derivativeHistory    = zeros(size(weights));
+            
+            this.weights              = weights;
+            this.finalTrainingError   = Inf;
+            this.finalValidationError = Inf;
                         
-            this.hasTrained             = 0;
+            this.hasTrained           = 0;
             
             
             % ===========================================================
@@ -183,63 +223,161 @@ classdef NeuralNetwork < handle
             switch this.trainingMode
                 case NeuralNetwork.TRAINING_MODE_SAMPLE_BY_SAMPLE
                     while ~(this.isComplete(iEpoch, outputError))
-                        
-                        % For each sample
-                        for jSample = 1 : nSamples
+                        for jSample = 1 : numSamples
                             sampleInputs = inputs(jSample, :);
-                            sampleOutputs = outputs(jSample, :);
+                            sampleOutputs = outputs(jSample, :);                                                                                    
+                            
+                            %
+                            % Main part of loop 
+                            %
+                            
+                            % Update the weight values (except the very
+                            % first occurance, because initial weights have
+                            % already been given. This could be done at the
+                            % end of the loop but then the weights returned
+                            % will not be the most recent weights used.
+                            if ~(iEpoch == 1 && jSample == 1)
+                                [this weights] = this.updateWeights(weights, derivatives, numInputs, numOutputs);
+                            end
                             
                             % Calculate ynn
-                            [this computedOutputs z] = this.computeOutputs(sampleInputs, weights, nOutputs);
+                            [this computedOutputs z] = this.computeOutputs(sampleInputs, weights, numOutputs);
                             
-                            % Calculate the error of the outputs
+                            % Calculate the error of the outputs in this sample
                             [this outputError] = this.computeError(computedOutputs, sampleOutputs);                            
                                                                                     
                             % Compute the error derivatives for each weight
                             [this derivatives] = this.computeDerivatives(computedOutputs, ...
                                 sampleInputs, sampleOutputs, weights, z);
                             
-                            % Update the weight values
-                            [this weights] = this.updateWeights(weights, derivatives, nInputs, nOutputs);
                             
+                            %
+                            % Record desired information
+                            %
                             
-                            % Add to errorHistory
-                            this.errorHistory(jSample, iEpoch) = outputError;
+                            % Computed outputs
+                            if bitand(this.histories, NeuralNetwork.HISTORY_TYPE_TRAINING_OUTPUTS)
+                                this.trainingOutputs(jSample, iEpoch, :) = computedOutputs;                                
+                            end
                             
-                            % Add to outputHistory
-                            for k = 1 : nOutputs
-                                this.outputHistory(jSample, ((iEpoch - 1) * k) + k)
+                            % Sample errors
+                            if bitand(this.histories, NeuralNetwork.HISTORY_TYPE_TRAINING_ERRORS)                                
+                                this.trainingErrors(jSample, iEpoch) = outputError;                                
+                            end
+                            
+                            % Weights
+                            if bitand(this.histories, NeuralNetwork.HISTORY_TYPE_WEIGHTS)
+                                this.weightHistory(:, :, :, iEpoch, jSample) = weights;
+                            end
+                            
+                            % Derivatives
+                            if bitand(this.histories, NeuralNetwork.HISTORY_TYPE_DERIVATIVES)
+                                this.derivativeHistory(:, :, :, iEpoch, jSample) = derivatives;
                             end
                         end
                         iEpoch = iEpoch + 1;
-                    end
-       
-                    for iSample = 1 : nSamples
-                       %subplot(nSamples, 1, iSample), 
-                       plot(this.trainingErrors(iSample, :)); 
-                    end
+                    end       
                 case NeuralNetwork.TRAINING_MODE_BATCH
-                    error('train(): Batch mode is not implemented yet.');
+                    error('train(): Batch mode is not implemented yet.');     
             end
 
-            
+            this.weights = weights;
+            this.finalTrainingError = outputError;            
             this.hasTrained = 1;
+        end
+        
+        %%
+        function [this outputError] = validate(this, data)
+            if ~(this.hasTrained)
+               error('validate(): Cannot validate without training first.'); 
+            end
+            
+            if nargin < 2 || isempty(data)
+                error('validate(): Cannot validate without data.');
+            end
+            
+            if size(data, 2) ~= size(this.trainingData, 2)
+               error('validate(): Validation data must have the same number of inputs/outputs as the training data.');
+            end
+                       
+            inputs = data(:, 1:this.numInputs);
+            outputs = data(:, (this.numInputs + 1):(this.numInputs + this.numOutputs));
+            this.numSamplesValidation = size(data, 1);
+
+            outputError = Inf;   
+            switch this.trainingMode
+                case NeuralNetwork.TRAINING_MODE_SAMPLE_BY_SAMPLE
+                    for iSample = 1 : this.numSamplesValidation
+                        sampleInputs = inputs(jSample, :);
+                        sampleOutputs = outputs(jSample, :);                 
+                        
+                        [this computedOutputs] = this.computeOutputs(sampleInputs, this.weights, this.numOutputs);
+                        [this outputError] = this.computeError(computedOutputs, sampleOutputs); 
+                        
+                        if bitand(this.histories, NeuralNetwork.HISTORY_TYPE_VALIDATION_OUTPUTS)
+                            this.validationOutputs(iSample, :) = computedOutputs;                                
+                        end
+                        if bitand(this.histories, NeuralNetwork.HISTORY_TYPE_VALIDATION_ERRORS)                                
+                            this.validationErrors(iSample) = outputError;
+                        end
+                    end
+                case NeuralNetwork.TRAINING_MODE_BATCH
+                    error('validate(): Batch mode is not implemented yet.');
+            end
+            
+            this.finalValidationError = outputError;
+        end
+        
+        %%
+        function this = plot(this)            
+            
+            switch this.trainingMode
+                case NeuralNetwork.TRAINING_MODE_SAMPLE_BY_SAMPLE
+                    count = 0;
+                    if ~isempty(this.trainingErrors) 
+                        count = count + 1;
+                        y(count) = mean(this.trainingErrors, 2);
+                        e(count) = std(this.trainingErrors, 0, 2);
+                    end
+                    if ~isempty(this.validationErrors)
+                        count = count + 1;
+                        y(count) = mean(this.validationErrors, 2);
+                        e(count) = std(this.validationErrors, 0, 2);
+                    end
+                    
+                    for i = 1 : count
+                        subplot(count, 1, i), errorbar(y(i), e(i)); 
+                    end
+                case NeuralNetwork.TRAINING_MODE_BATCH
+                    error('plot(): Batch mode is not implemented yet.');
+            end                            
         end
     end
     
+    %%
     methods (Access = private)
         
         %%
-        function [this weights] = makeWeightMatrix(this, nInputs, nHidden, nOutputs)
-            x = nHidden;
-            y = max(nInputs, nOutputs);
+        % Make a matrix for the initial weights of a neural network with
+        % the given amount of neurons at each level. The weight matrix has
+        % three dimensions/arguments:
+        %   1st: Hidden neuron index, or '1' if there isnt any (output biases)
+        %   2nd: Input or output neuron index, or '1' if there isn't any (hidden biases)
+        %   3rd: "Layer" or group which this type of weight belongs
+        %        (input-hidden, hidden bias, hidden-output, output bias).
+        %
+        %   e.g.    weights(hidden, input/output, group);
+        %
+        function [this weights] = makeWeightMatrix(this, numInputs, numHidden, numOutputs)
+            x = numHidden;
+            y = max(numInputs, numOutputs);
             z = 4;
             
-            weights = zeros(x, y, z);            
+            weights = zeros(x, y, z);
             
-            for jHidden = 1 : nHidden   
+            for jHidden = 1 : numHidden   
                % Input-Hidden link default weights (layer 1)
-               for iInput = 1 : nInputs
+               for iInput = 1 : numInputs
                     weights(jHidden, iInput, 1) = (-1)^(iInput + jHidden);
                end
                
@@ -247,8 +385,8 @@ classdef NeuralNetwork < handle
                weights(jHidden, 1, 2) = 1;
             end
             
-            for jHidden = 1 : nHidden
-               for kOutput = 1 : nOutputs
+            for jHidden = 1 : numHidden
+               for kOutput = 1 : numOutputs
                     
                    % Hidden-Output link default weights (layer 3)
                     weights(jHidden, kOutput, 3) = (-1)^(jHidden + kOutput);
@@ -281,26 +419,27 @@ classdef NeuralNetwork < handle
         end
         
         %% Compute output(s) of one sample
-        function [this y z] = computeOutputs(this, inputs, weights, nOutputs)
-            nInputs = size(inputs, 2);
-            nHidden = size(weights, 1);
-                        
-            gamma = zeros(nHidden, 1);
-            z     = zeros(nHidden, 1);  
-            y     = zeros(nOutputs, 1);
+        function [this y z] = computeOutputs(this, inputs, weights, numOutputs)
+            numInputs = size(inputs, 2);
+            numHidden = size(weights, 1);
+disp(size(weights));            
+fprintf('in %d, out %d, hid %d, weights %s\n', numInputs, numOutputs, numHidden, size(weights));                        
+            gamma = zeros(numHidden, 1);
+            z     = zeros(numHidden, 1);  
+            y     = zeros(numOutputs, 1);
             
-            for kOutput = 1 : nOutputs
+            for kOutput = 1 : numOutputs
                 
                 % Initial output value is it's bias                
                 y(kOutput) = weights(1, kOutput, 4);
                 
-                for jHidden = 1 : nHidden                    
+                for jHidden = 1 : numHidden                    
                     
                     % Initial gamma value is the hidden neuron's bias
                     gamma(jHidden) = weights(jHidden, 1, 2);
                     
                     % Add each term together for gamma
-                    for iInput = 1 : nInputs                        
+                    for iInput = 1 : numInputs                        
                         gamma(jHidden) = gamma(jHidden) + weights(jHidden, iInput, 1) * inputs(iInput);
                     end
                     
@@ -317,28 +456,31 @@ classdef NeuralNetwork < handle
         function [this err] = computeError(this, y, outputs)
             err = 0;
             for iOutput = 1 : length(outputs)
-               err = err + (y(iOutput) - outputs(iOutput))^2;
+               err = err + abs(y(iOutput) - outputs(iOutput));
             end
-            err = err / 2;
+            err = .5 * err ^ 2;
         end
         
         %%
+        % Derivative of the error with respect to each weight. The
+        % derivatives matrix has the same format as the weight matrix (i.e.
+        % four layers/groups).
         function [this derivatives] = computeDerivatives(this, y, inputs, ...
                 outputs, weights, z)
             
-            nInputs = size(inputs, 2);
-            nHidden = size(weights, 1);
-            nOutputs = size(outputs, 2);
+            numInputs = size(inputs, 2);
+            numHidden = size(weights, 1);
+            numOutputs = size(outputs, 2);
             
             derivatives = zeros(size(weights));
             
-            for kOutput = 1 : nOutputs
+            for kOutput = 1 : numOutputs
                 
                 % Derivative with respect to the output
                 % ynn - ytable
                 derivatives(1, kOutput, 4) = y(kOutput) - outputs(kOutput);
                 
-                for jHidden = 1 : nHidden;
+                for jHidden = 1 : numHidden;
                     
                     % Derivative with respect to hidden-output link weights
                     % dE/dy * zj
@@ -353,7 +495,7 @@ classdef NeuralNetwork < handle
                     
                     % Derivative with respect to input-hidden link weights
                     % sum(dE/dy * (hidden-output link derivative) * zj * (1 - zj) * xi)
-                    for iInput = 1 : nInputs
+                    for iInput = 1 : numInputs
                         derivatives(jHidden, iInput, 1) = derivatives(jHidden, iInput, 1) ...
                             + derivatives(1, kOutput, 4) ...
                             * derivatives(jHidden, kOutput, 3) ...
@@ -364,46 +506,37 @@ classdef NeuralNetwork < handle
         end
         
         %%
-        function [this weights] = updateWeights(this, weights, derivatives, nInputs, nOutputs)            
-            nHidden = size(weights, 1);            
+        function [this weights] = updateWeights(this, weights, derivatives, numInputs, numOutputs)            
+            numHidden = size(weights, 1);            
                  
             % Update input-hidden link weights
-            for iInput = 1 : nInputs                
-                for jHidden = 1 : nHidden
+            for iInput = 1 : numInputs                
+                for jHidden = 1 : numHidden
                     weights(jHidden, iInput, 1) = weights(jHidden, iInput, 1) ...
                         - derivatives(jHidden, iInput, 1) * this.alpha;
                 end
             end
             
             
-            for jHidden = 1 : nHidden
+            for jHidden = 1 : numHidden
                 
                 % Update hidden neuron biases
                 weights(jHidden, 1, 2) = weights(jHidden, 1, 2) ...
                     - derivatives(jHidden, 1, 2) * this.alpha;
 
                 % Update hidden-output link weights
-                for kOutput = 1 : nOutputs                        
+                for kOutput = 1 : numOutputs                        
                     weights(jHidden, kOutput, 3) = weights(jHidden, kOutput, 3) ...
                         - derivatives(jHidden, kOutput, 3) * this.alpha;                    
                 end
             end
             
              % Update output neuron biases
-            for kOutput = 1 : nOutputs               
+            for kOutput = 1 : numOutputs               
                 weights(1, kOutput, 4) = weights(1, kOutput, 4) ...
                     - derivatives(1, kOutput, 4) * this.alpha;  
             end
             
-        end
-        
-        %%
-        function [this validation] = verror(inputs, outputs)
-           for i =  1 : size(outputs, 1)
-              for j = 1 : size(outputs, 2)
-                  outputs(i, j) * inputs(i, ) - outputs(i,j)
-              end
-           end
         end
     end
 end
