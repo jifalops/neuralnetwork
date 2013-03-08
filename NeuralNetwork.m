@@ -30,8 +30,8 @@ classdef NeuralNetwork < handle
     properties
         trainingMode        = NeuralNetwork.TRAINING_MODE_SAMPLE_BY_SAMPLE;
         terminationMode     = NeuralNetwork.TERMINATION_MODE_EITHER;          
-        maxEpochs           = 100;
-        maxError            = 0.01;
+        maxEpochs           = 1000;
+        maxError            = 0.001;
         alpha               = 0.1;
         histories           = NeuralNetwork.HISTORY_TYPE_ERRORS;
     end
@@ -129,7 +129,7 @@ classdef NeuralNetwork < handle
         %             10x3x4 or 120 is much closer to 62 than 400 was.
         %             There is no added computational expense because no 
         %             lookup is needed.
-        function [this weights outputError] = train(this, data, numInputs, ...
+        function [weights outputError] = train(this, data, numInputs, ...
                 numHidden, initialWeights)
             
             % ===================================
@@ -237,17 +237,17 @@ classdef NeuralNetwork < handle
                             % end of the loop but then the weights returned
                             % will not be the most recent weights used.
                             if ~(iEpoch == 1 && jSample == 1)
-                                [this weights] = this.updateWeights(weights, derivatives, numInputs, numOutputs);
+                                weights = this.updateWeights(weights, derivatives, numInputs, numOutputs);
                             end
                             
                             % Calculate ynn
-                            [this computedOutputs z] = this.computeOutputs(sampleInputs, weights, numOutputs);
+                            [computedOutputs z] = this.computeOutputs(sampleInputs, weights, numOutputs);
                             
                             % Calculate the error of the outputs in this sample
-                            [this outputError] = this.computeError(computedOutputs, sampleOutputs);                            
+                            outputError = this.computeError(computedOutputs, sampleOutputs);                            
                                                                                     
                             % Compute the error derivatives for each weight
-                            [this derivatives] = this.computeDerivatives(computedOutputs, ...
+                            derivatives = this.computeDerivatives(computedOutputs, ...
                                 sampleInputs, sampleOutputs, weights, z);
                             
                             
@@ -287,7 +287,7 @@ classdef NeuralNetwork < handle
         end
         
         %%
-        function [this outputError] = validate(this, data)
+        function outputError = validate(this, data)
             if ~(this.hasTrained)
                error('validate(): Cannot validate without training first.'); 
             end
@@ -308,11 +308,11 @@ classdef NeuralNetwork < handle
             switch this.trainingMode
                 case NeuralNetwork.TRAINING_MODE_SAMPLE_BY_SAMPLE
                     for iSample = 1 : this.numSamplesValidation
-                        sampleInputs = inputs(jSample, :);
-                        sampleOutputs = outputs(jSample, :);                 
+                        sampleInputs = inputs(iSample, :);
+                        sampleOutputs = outputs(iSample, :);                 
                         
-                        [this computedOutputs] = this.computeOutputs(sampleInputs, this.weights, this.numOutputs);
-                        [this outputError] = this.computeError(computedOutputs, sampleOutputs); 
+                        computedOutputs = this.computeOutputs(sampleInputs, this.weights, this.numOutputs);
+                        outputError = this.computeError(computedOutputs, sampleOutputs); 
                         
                         if bitand(this.histories, NeuralNetwork.HISTORY_TYPE_VALIDATION_OUTPUTS)
                             this.validationOutputs(iSample, :) = computedOutputs;                                
@@ -329,25 +329,13 @@ classdef NeuralNetwork < handle
         end
         
         %%
-        function this = plot(this)            
+        function plot(this)            
             
             switch this.trainingMode
-                case NeuralNetwork.TRAINING_MODE_SAMPLE_BY_SAMPLE
-                    count = 0;
-                    if ~isempty(this.trainingErrors) 
-                        count = count + 1;
-                        y(count) = mean(this.trainingErrors, 2);
-                        e(count) = std(this.trainingErrors, 0, 2);
-                    end
-                    if ~isempty(this.validationErrors)
-                        count = count + 1;
-                        y(count) = mean(this.validationErrors, 2);
-                        e(count) = std(this.validationErrors, 0, 2);
-                    end
-                    
-                    for i = 1 : count
-                        subplot(count, 1, i), errorbar(y(i), e(i)); 
-                    end
+                case NeuralNetwork.TRAINING_MODE_SAMPLE_BY_SAMPLE                       
+                    subplot(2, 1, 1), plot(mean(this.trainingErrors, 1));
+                    subplot(2, 1, 2), plot(this.validationErrors);
+
                 case NeuralNetwork.TRAINING_MODE_BATCH
                     error('plot(): Batch mode is not implemented yet.');
             end                            
@@ -368,7 +356,7 @@ classdef NeuralNetwork < handle
         %
         %   e.g.    weights(hidden, input/output, group);
         %
-        function [this weights] = makeWeightMatrix(this, numInputs, numHidden, numOutputs)
+        function weights = makeWeightMatrix(this, numInputs, numHidden, numOutputs)
             x = numHidden;
             y = max(numInputs, numOutputs);
             z = 4;
@@ -401,7 +389,7 @@ classdef NeuralNetwork < handle
         end
          
         %%
-        function [result this] = isComplete(this, iEpoch, currentError)
+        function result = isComplete(this, iEpoch, currentError)
             switch this.terminationMode
                 case NeuralNetwork.TERMINATION_MODE_NONE
                     result = 0;
@@ -419,10 +407,10 @@ classdef NeuralNetwork < handle
         end
         
         %% Compute output(s) of one sample
-        function [this y z] = computeOutputs(this, inputs, weights, numOutputs)
+        function [y z] = computeOutputs(this, inputs, weights, numOutputs)
             numInputs = size(inputs, 2);
             numHidden = size(weights, 1);         
-fprintf('in %d, out %d, hid %d, weights %s\n', numInputs, numOutputs, numHidden, size(weights));                        
+                      
             gamma = zeros(numHidden, 1);
             z     = zeros(numHidden, 1);  
             y     = zeros(numOutputs, 1);
@@ -452,19 +440,19 @@ fprintf('in %d, out %d, hid %d, weights %s\n', numInputs, numOutputs, numHidden,
         end
         
         %% Compute the error of one sample
-        function [this err] = computeError(this, y, outputs)
+        function err = computeError(this, y, outputs)
             err = 0;
             for iOutput = 1 : length(outputs)
-               err = err + abs(y(iOutput) - outputs(iOutput));
+               err = err + .5 * (y(iOutput) - outputs(iOutput))^2;
             end
-            err = .5 * err ^ 2;
+            %err =  err ^ 2;
         end
         
         %%
         % Derivative of the error with respect to each weight. The
         % derivatives matrix has the same format as the weight matrix (i.e.
         % four layers/groups).
-        function [this derivatives] = computeDerivatives(this, y, inputs, ...
+        function derivatives = computeDerivatives(this, y, inputs, ...
                 outputs, weights, z)
             
             numInputs = size(inputs, 2);
@@ -505,7 +493,7 @@ fprintf('in %d, out %d, hid %d, weights %s\n', numInputs, numOutputs, numHidden,
         end
         
         %%
-        function [this weights] = updateWeights(this, weights, derivatives, numInputs, numOutputs)            
+        function weights = updateWeights(this, weights, derivatives, numInputs, numOutputs)            
             numHidden = size(weights, 1);            
                  
             % Update input-hidden link weights
