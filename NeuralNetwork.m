@@ -1,5 +1,8 @@
 classdef NeuralNetwork < handle
-    properties (Constant)             
+    properties (Constant)    
+       MODEL_TYPE_MLP3 = 1;     % Multi-Layer Perceptron
+       MODEL_TYPE_RBF  = 2;     % Radial Basis Function
+        
        TRAINING_MODE_SAMPLE_BY_SAMPLE = 1;
        TRAINING_MODE_BATCH            = 2;       
 
@@ -9,9 +12,8 @@ classdef NeuralNetwork < handle
        TERMINATION_MODE_EITHER    = 3;
        TERMINATION_MODE_BOTH      = 4;
        
-       % The types of histories to remember. These can help analyze the
-       % network, but may cost vast amounts of memory for large problems.
-       % Using flags for flexibility.
+       % Types of histories to remember. These can help analyze the
+       % network, but may cost huge amounts of memory for large problems.
        HISTORY_TYPE_NONE               = bin2dec('000000');
        HISTORY_TYPE_TRAINING_OUTPUTS   = bin2dec('000001');
        HISTORY_TYPE_TRAINING_ERRORS    = bin2dec('000010');
@@ -20,14 +22,19 @@ classdef NeuralNetwork < handle
        HISTORY_TYPE_WEIGHTS            = bin2dec('010000');
        HISTORY_TYPE_DERIVATIVES        = bin2dec('100000');       
        % Combination histories
-       HISTORY_TYPE_TRAINING           = bin2dec('000011');
-       HISTORY_TYPE_VALIDATION         = bin2dec('001100');
-       HISTORY_TYPE_OUTPUTS            = bin2dec('000101');
-       HISTORY_TYPE_ERRORS             = bin2dec('001010');
+       HISTORY_TYPE_TRAINING           = HISTORY_TYPE_TRAINING_OUTPUTS    + ...
+                                         HISTORY_TYPE_TRAINING_ERRORS;
+       HISTORY_TYPE_VALIDATION         = HISTORY_TYPE_VALIDATION_OUTPUTS  + ...
+                                         HISTORY_TYPE_VALIDATION_ERRORS;
+       HISTORY_TYPE_OUTPUTS            = HISTORY_TYPE_TRAINING_OUTPUTS    + ...
+                                         HISTORY_TYPE_VALIDATION_OUTPUTS;
+       HISTORY_TYPE_ERRORS             = HISTORY_TYPE_TRAINING_ERRORS     + ...
+                                         HISTORY_TYPE_VALIDATION_ERRORS;
        HISTORY_TYPE_ALL                = bin2dec('111111');
     end
 
     properties
+        modelType           = NeuralNetwork.MODEL_TYPE_MLP3;
         trainingMode        = NeuralNetwork.TRAINING_MODE_SAMPLE_BY_SAMPLE;
         terminationMode     = NeuralNetwork.TERMINATION_MODE_EITHER;          
         maxEpochs           = 100;
@@ -57,17 +64,15 @@ classdef NeuralNetwork < handle
         meanTrainingError;  % last epoch only
         meanValidationError;
         
+        % Not available in batch mode
         lastSampleTrainingError;
         lastSampleValidationError;
-        
-        
-        % Record of all calculated outputs during training
+              
         % x - Each is a sample (only 1 for batch mode)
         % y - Each is an epoch
         % z - Each is an output neuron        
         trainingOutputHistory;                
         
-        % Errors for the above outputs
         % x - sample
         % y - epoch
         trainingErrorHistory;
@@ -77,20 +82,15 @@ classdef NeuralNetwork < handle
         % y - output
         validationOutputHistory;
         
-        % Errors from validation 
         % x - output error
         validationErrorHistory;        
         
         % Five-dimensional matrices, first three dimensions are an instance
         % of a weight matrix, fourth dimension is the epoch index, fifth
         % dimension is the sample index (always 1 for batch mode).
-        % 
-        % These apply only to training, not validation. Weight matrices are 
-        % described in further detail below.
         weightHistory;    
         derivativeHistory;    
-        
-        % Used to determine if it is ok to run validation
+
         hasTrained = 0;        
     end
     
