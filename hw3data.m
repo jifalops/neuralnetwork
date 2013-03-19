@@ -1,9 +1,9 @@
 %% To visualize use: plot(data(:, 1), data(:, 2))
 function data = hw3data() 
     min = 0;
-    max = 4;
-    rows = 4000;
-    scale = rows / (max - min);
+    max = 4;    
+    scale = 100;
+    rows = (max - min) * scale;
     
     data = zeros(rows, 2);
     for i = 1 : rows
