@@ -625,8 +625,12 @@ classdef NeuralNetwork < handle
         function derivatives = computeDerivatives(this, computedOutputs, ...
                 sampleInputs, sampleOutputs, z)
             
-            derivatives = zeros(size(this.weights));
+            x = sampleInputs;
+            y = sampleOutputs;
+            ynn = computedOutputs;
             
+            derivatives = zeros(size(this.weights));
+            % Derivative groups:            
             % a = MLP3 - derivatives of input-hidden layer weights
             %     RBF  - derivatives of "C" weights
             % b = MLP3 - derivatives of hidden layer biases
@@ -634,54 +638,69 @@ classdef NeuralNetwork < handle
             % c = derivatives of hidden-output layer weights
             % d = derivatives of output layer biases
             
-            for kOutput = 1 : this.numOutputs
-                
-                % Derivative with respect to the output
-                % ynn - ytable
-                d = computedOutputs(kOutput) - sampleOutputs(kOutput);
-                
-                for jHidden = 1 : this.numHidden;
-                    
-                    % Derivative with respect to hidden-output link weights
-                    c = d * z(jHidden);
-                    
-                    switch this.modelType
-                        case NeuralNetwork.MODEL_TYPE_MLP3
-                            % Derivative with respect to hidden neuron biases                            
-                            b = b + d * c * z(jHidden) * (1 - z(jHidden));
+            switch this.modelType
+                case NeuralNetwork.MODEL_TYPE_MLP3
+                    for k = 1 : this.numOutputs
+                        
+                        % output bias
+                        d = ynn(k) - y(k);
 
-                            % Derivative with respect to input-hidden link weights                            
-                            for iInput = 1 : this.numInputs
-                                a = a + d * c * z(jHidden) * (1 - z(jHidden)) * sampleInputs(iInput);                                
-                            end
-                            
-                            derivatives(jHidden, 1, 2) = b;
-                            derivatives(jHidden, iInput, 1) = a;
-                            
-                        case NeuralNetwork.MODEL_TYPE_RBF
-                            sum = 0;
-                            for kOutput = 1 : this.numOutputs
-                               sum = sum ...
-                                   + derivatives(1, kOutput, 4) ...
-                                   * this.weights(jHidden, kOutput, 3);
-                            end
-                            for iInput = 1 : this.numInputs
-                                %lambda
-                                derivatives(jHidden, iInput, 2) = sum * 2 * z(jHidden) ...
-                                    * (sampleInputs(iInput) - this.weights(jHidden, iInput, 1)) ^ 2 ...
-                                    / this.weights(jHidden, iInput, 2) ^ 3;
+                        for j = 1 : this.numHidden;
 
-                                %c
-                                derivatives(jHidden, iInput, 1) = sum * 2 * z(jHidden) ...
-                                    * (sampleInputs(iInput) - this.weights(jHidden, iInput, 1)) ...
-                                    / this.weights(jHidden, iInput, 2) ^ 2;
-                            end
+                            % hidden-output weight
+                            c = d * z(j);
+
+                            % hidden bias                            
+                            b = d * c * z(j) * (1 - z(j));
+                            
+                            for i = 1 : this.numInputs
+                                
+                                % input-hidden weight
+                                a = d * c * z(j) * (1 - z(j)) * x(i);  
+                                
+                                derivatives(j, i, 1) = a;
+                            end                            
+                            derivatives(j, 1, 2) = b;
+                            derivatives(j, k, 3) = c;
+                        end                    
+                        derivatives(1, k, 4) = d;
                     end
-                    
-                    derivatives(jHidden, kOutput, 3) = c;
-                end
-                
-                derivatives(1, kOutput, 4) = d;
+                case NeuralNetwork.MODEL_TYPE_RBF
+                    for k = 1 : this.numOutputs
+                        
+                        % output bias
+                        d = ynn(k) - y(k);
+
+                        for j = 1 : this.numHidden;
+
+                            % hidden-output weight
+                            c = d * z(j);
+                        
+                            % Prepare for lambda and C
+                            % summation of: (ynn,k - yk) * Vjk
+                            sum = 0;
+                            for k2 = 1 : this.numOutputs                               
+                               sum = sum + d * this.weights(j, k2, 3);
+                            end
+                            
+                            for i = 1 : this.numInputs
+                                
+                                % c-weight (not to be confused with derivative group c)
+                                cw = this.weights(j, i, 1);
+                                lambda = this.weights(j, i, 2);
+                                
+                                b = sum * 2 * z(j) * (x(i) - cw) ^ 2 / lambda ^ 3;
+
+                                
+                                a = sum * 2 * z(j) * (x(i) - cw) / lambda ^ 2;
+                                
+                                derivatives(j, i, 1) = a;
+                                derivatives(j, i, 2) = b;                                
+                            end                            
+                            derivatives(j, k, 3) = c;
+                        end
+                        derivatives(1, k, 4) = d;
+                    end 
             end
         end
         
