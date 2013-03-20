@@ -2,7 +2,7 @@
 function data = hw3data() 
     min = 0;
     max = 4;    
-    scale = 100;
+    scale = 200;
     rows = (max - min) * scale;
     
     data = zeros(rows, 2);

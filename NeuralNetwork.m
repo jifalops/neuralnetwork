@@ -30,6 +30,7 @@ classdef NeuralNetwork < handle
        
        WEIGHT_TYPE_I_PLUS_J = 1;
        WEIGHT_TYPE_RANDOM   = 2;
+       WEIGHT_TYPE_ONES     = 3;
     end
 
     properties
@@ -181,6 +182,39 @@ classdef NeuralNetwork < handle
                             end                    
                        end               
                     end
+                case NeuralNetwork.WEIGHT_TYPE_ONES
+                    for jHidden = 1 : this.numHidden
+
+                        % Input-Hidden link default weights (layer 1)
+                        % Values for `c` in RBF
+                        for iInput = 1 : this.numInputs
+                            weights(jHidden, iInput, 1) = 1;
+                            
+                            if this.modelType == NeuralNetwork.MODEL_TYPE_RBF
+                                % Lambda weights (layer 2)
+                                weights(jHidden, iInput, 2) = 1;
+                            end
+                        end
+                                                
+                        if this.modelType == NeuralNetwork.MODEL_TYPE_MLP3
+                            % Hidden neuron biases (layer 2)
+                            weights(jHidden, 1, 2) = 1;
+                        end
+                    end
+
+                    for jHidden = 1 : this.numHidden
+                       for kOutput = 1 : this.numOutputs
+
+                           % Hidden-Output link default weights (layer 3)
+                            weights(jHidden, kOutput, 3) = 1;
+
+                            % Output bias weights (layer 4)
+                            if jHidden == 1
+                                weights(1, kOutput, 4) = 1;
+                            end                    
+                       end               
+                    end
+                    
             end
         end
         
