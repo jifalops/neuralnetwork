@@ -635,6 +635,7 @@ classdef NeuralNetwork < handle
             % d = derivatives of output layer biases
             
             for kOutput = 1 : this.numOutputs
+                d = 0;
                 
                 % Derivative with respect to the output
                 % ynn - ytable
