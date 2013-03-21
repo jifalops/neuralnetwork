@@ -39,12 +39,12 @@ classdef NeuralNetwork < handle
         trainingMode        = NeuralNetwork.TRAINING_MODE_SAMPLE_BY_SAMPLE;
         terminationMode     = NeuralNetwork.TERMINATION_MODE_EPOCHS;          
         maxEpochs           = 100;
-        maxError            = 0.01;
+        maxError            = 0.001;
         alpha               = 0.1;
         histories           = NeuralNetwork.HISTORY_TYPE_ERRORS;
     end
     
-    properties (SetAccess = private)                        
+    properties (SetAccess = private)                      
         % All of the input and output data used for training or validation
         trainingData;
         validationData;
@@ -113,107 +113,111 @@ classdef NeuralNetwork < handle
         %   e.g.    weights(hidden, input/output, group);
         %
         function weights = makeWeightMatrix(this)
-            x = this.numHidden;
-            y = max(this.numInputs, this.numOutputs);
-            z = 4;
+            hidden = this.numHidden;
+            InputOutput = max(this.numInputs, this.numOutputs);
+            abcd = 4; % weight group a, b, c, or d
             
-            weights = zeros(x, y, z);
+            weights = zeros(hidden, InputOutput, abcd); 
             
             switch this.weightType
                 case NeuralNetwork.WEIGHT_TYPE_I_PLUS_J            
-                    for jHidden = 1 : this.numHidden
+                    for j = 1 : this.numHidden
 
-                        % Input-Hidden link default weights (layer 1)
-                        % Values for `c` in RBF
-                        for iInput = 1 : this.numInputs
-                            weights(jHidden, iInput, 1) = (-1)^(iInput + jHidden);
+                        % Input-Hidden weights (layer 1, or "a")
+                        % (Values for "Cij" in RBF)
+                        for i = 1 : this.numInputs
+                            weights(j, i, 1) = (-1)^(i + j);                            
                         end
                         
-                        % Layer 2
-                        switch this.modelType
-                            % Hidden neuron bias weights
+                        % Layer 2, or "b"
+                        switch this.modelType                            
                             case NeuralNetwork.MODEL_TYPE_MLP3                                
-                                weights(jHidden, 1, 2) = 1;
-                            % Lambda weights
+                                
+                                % Hidden bias weights
+                                weights(j, 1, 2) = 1;                            
+                            
                             case NeuralNetwork.MODEL_TYPE_RBF
-                                weights(jHidden, :, 2) = weights(jHidden, :, 1);
+                                
+                                % Lambda weights (same as Cij in this case)
+                                weights(j, :, 2) = weights(j, :, 1);
                         end
                             
                     end
 
-                    for jHidden = 1 : this.numHidden
-                       for kOutput = 1 : this.numOutputs
-
-                           % Hidden-Output link default weights (layer 3)
-                            weights(jHidden, kOutput, 3) = (-1)^(jHidden + kOutput);
-
-                            % Output bias weights (layer 4)
-                            if jHidden == 1
-                                weights(1, kOutput, 4) = 1;
+                    for j = 1 : this.numHidden
+                       for k = 1 : this.numOutputs
+                            
+                            % Hidden-Output weights (layer 3, or "c")
+                            weights(j, k, 3) = (-1)^(j + k);
+                            
+                            % Output bias weights (layer 4, or "d")
+                            if j == 1
+                                weights(1, k, 4) = 1;
                             end                    
                        end               
-                    end    
+                    end
+                    
                 case NeuralNetwork.WEIGHT_TYPE_RANDOM
-                    for jHidden = 1 : this.numHidden
+                    for j = 1 : this.numHidden
 
-                        % Input-Hidden link default weights (layer 1)
-                        % Values for `c` in RBF
-                        for iInput = 1 : this.numInputs
-                            weights(jHidden, iInput, 1) = (rand - 0.5) * 2;
+                        % Input-Hidden link default weights (layer 1, or "a")
+                        % (Values for "Cij" in RBF)
+                        for i = 1 : this.numInputs
+                            weights(j, i, 1) = (rand - 0.5) * 2;
                             
                             if this.modelType == NeuralNetwork.MODEL_TYPE_RBF
-                                % Lambda weights (layer 2)
-                                weights(jHidden, iInput, 2) = (rand - 0.5) * 2;
+                                % Lambda weights (layer 2, or "b")
+                                weights(j, i, 2) = (rand - 0.5) * 2;
                             end
                         end
                                                 
                         if this.modelType == NeuralNetwork.MODEL_TYPE_MLP3
-                            % Hidden neuron biases (layer 2)
-                            weights(jHidden, 1, 2) = (rand - 0.5) * 2;
+                            % Hidden biases (layer 2, or "b")
+                            weights(j, 1, 2) = (rand - 0.5) * 2;
                         end
                     end
 
-                    for jHidden = 1 : this.numHidden
-                       for kOutput = 1 : this.numOutputs
+                    for j = 1 : this.numHidden
+                       for k = 1 : this.numOutputs
 
-                           % Hidden-Output link default weights (layer 3)
-                            weights(jHidden, kOutput, 3) = (rand - 0.5) * 2;
+                           % Hidden-Output weights (layer 3, or "c")
+                            weights(j, k, 3) = (rand - 0.5) * 2;
 
-                            % Output bias weights (layer 4)
-                            if jHidden == 1
-                                weights(1, kOutput, 4) = (rand - 0.5) * 2;
+                            % Output bias weights (layer 4, or "d")
+                            if j == 1
+                                weights(1, k, 4) = (rand - 0.5) * 2;
                             end                    
                        end               
                     end
                 case NeuralNetwork.WEIGHT_TYPE_ONES
-                    for jHidden = 1 : this.numHidden
+                    for j = 1 : this.numHidden
 
-                        % Input-Hidden link default weights (layer 1)
-                        % Values for `c` in RBF
-                        for iInput = 1 : this.numInputs
-                            weights(jHidden, iInput, 1) = 1;
+                        % Input-Hidden weights (layer 1, or "a")
+                        % (Values for "Cij" in RBF)
+                        for i = 1 : this.numInputs
+                            weights(j, i, 1) = 1;
                             
                             if this.modelType == NeuralNetwork.MODEL_TYPE_RBF
-                                % Lambda weights (layer 2)
-                                weights(jHidden, iInput, 2) = 1;
+                                % Lambda weights (layer 2, or "b")
+                                weights(j, i, 2) = 1;
                             end
                         end
                                                 
                         if this.modelType == NeuralNetwork.MODEL_TYPE_MLP3
-                            % Hidden neuron biases (layer 2)
-                            weights(jHidden, 1, 2) = 1;
+                            % Hidden biases (layer 2, or "b")
+                            weights(j, 1, 2) = 1;
                         end
                     end
 
-                    for jHidden = 1 : this.numHidden
-                       for kOutput = 1 : this.numOutputs
+                    for j = 1 : this.numHidden
+                       for k = 1 : this.numOutputs
 
-                           % Hidden-Output link default weights (layer 3)
-                            weights(jHidden, kOutput, 3) = 1;
+                           % Hidden-Output weights (layer 3, or "c")
+                            weights(j, k, 3) = 1;
 
-                            % Output bias weights (layer 4)
-                            if jHidden == 1
-                                weights(1, kOutput, 4) = 1;
+                            % Output bias weights (layer 4, or "d")
+                            if j == 1
+                                weights(1, k, 4) = 1;
                             end                    
                        end               
                     end
@@ -242,51 +246,41 @@ classdef NeuralNetwork < handle
             % and initialize state.
             % ===================================                        
             
-            % data
             if nargin < 2 || isempty(data) 
                 error('train(): Cannot train without data.');
             end
-            
-            % numInputs
+
             if nargin < 3 || numInputs < 1
                error('train(): There must be at least one input.');                           
             end      
 
-            % numOutputs
             numOutputs = size(data, 2) - numInputs; %#ok<*PROP>
             if numOutputs < 1
                error('train(): There must be at least one output.'); 
             end
 
-            % numSamples
             numSamples = size(data, 1);
             if numSamples < 1
                 error('train(): There must be at least one sample.');
             end
 
-            % inputs
             inputs = data(:, 1:numInputs);
 
-            % outputs
             outputs = data(:, (numInputs + 1):(numInputs + numOutputs));
             
-            % numHidden
             if nargin >= 4                
                 if numHidden < 1
                     error('train(): There must be at least one hidden neuron.');                 
                 end
             else
-                % Default number of hidden neurons is the average number of 
-                % inputs and outputs, rounded up.
                 numHidden = ceil(mean([numInputs numOutputs]));
             end
+                        
             
-            
-            
-            % ==========================================================
-            % Parameters have been validated. Store relevant information 
-            % in the class variables and clear any old data.
-            % ==========================================================
+            % =================================================
+            % Store relevant information in the class variables 
+            % and clear any old data.
+            % =================================================
             
             this.trainingData              = data;
             this.numInputs                 = numInputs;
@@ -294,7 +288,6 @@ classdef NeuralNetwork < handle
             this.numHidden                 = numHidden; 
             this.numSamplesTraining        = numSamples;
                         
-            % initialWeights
             weights = this.makeWeightMatrix();  
             if nargin >= 5 
                 if size(initialWeights) ~= size(weights)
@@ -337,17 +330,16 @@ classdef NeuralNetwork < handle
             % ===========================================================
             % ===========================================================
             
-            epochTotalOutputError = Inf;
-            
+            epochTotalOutputError = Inf;            
             iEpoch = 1;
-            outputError = Inf;
+            E = Inf;
             switch this.trainingMode
                 case NeuralNetwork.TRAINING_MODE_SAMPLE_BY_SAMPLE
                     while ~(this.isComplete(iEpoch, epochTotalOutputError))
                         epochTotalOutputError = 0;              
                         for jSample = 1 : numSamples
-                            sampleInputs = inputs(jSample, :);
-                            sampleOutputs = outputs(jSample, :);                                                                                    
+                            x = inputs(jSample, :);
+                            Ytable = outputs(jSample, :);                                                                                    
                             
                             % =================
                             % Main part of loop 
@@ -357,34 +349,32 @@ classdef NeuralNetwork < handle
                             % first occurance, because initial weights have
                             % already been given).
                             if ~(iEpoch == 1 && jSample == 1)
-                                this.updateWeights(derivatives);
+                                this.updateWeights(derivs);
                             end
                             
                             % Calculate ynn (also return z, so it doesn't
-                            % have to be calculated again for the
-                            % derivatives).
-                            [computedOutputs z] = this.computeOutputs(sampleInputs);
+                            % have to be calculated again for the derivs).                            
+                            [Ynn z] = this.calcYnn(x);
                             
-                            % Calculate the error of the outputs in this sample
-                            outputError = this.computeError(computedOutputs, sampleOutputs);                            
+                            % Calculate the error of the outputs in this sample                            
+                            E = this.calcError(Ynn, Ytable);                            
                                                                                     
-                            % Compute the error derivatives for each weight
-                            derivatives = this.computeDerivatives(computedOutputs, ...
-                                sampleInputs, sampleOutputs, z);
-                            
-                            
-                            epochTotalOutputError = epochTotalOutputError + outputError;
+                            % Calculate the error derivs for each weight
+                            % i.e. [a b c d] = calcDerivs(Ynn, x, Ytable, z)
+                            derivs = this.calcDerivs(Ynn, x, Ytable, z);
+                                                        
+                            epochTotalOutputError = epochTotalOutputError + E;
                             
                             % ==========================
                             % Record desired information
                             % ==========================
 
                             if bitand(this.histories, NeuralNetwork.HISTORY_TYPE_TRAINING_OUTPUTS)
-                                this.trainingOutputHistory(jSample, iEpoch, :) = computedOutputs;                                
+                                this.trainingOutputHistory(jSample, iEpoch, :) = Ynn;                                
                             end
 
                             if bitand(this.histories, NeuralNetwork.HISTORY_TYPE_TRAINING_ERRORS)                                
-                                this.trainingErrorHistory(jSample, iEpoch) = outputError;                                
+                                this.trainingErrorHistory(jSample, iEpoch) = E;                                
                             end
 
                             if bitand(this.histories, NeuralNetwork.HISTORY_TYPE_WEIGHTS)
@@ -392,7 +382,7 @@ classdef NeuralNetwork < handle
                             end
                             
                             if bitand(this.histories, NeuralNetwork.HISTORY_TYPE_DERIVATIVES)
-                                this.derivativeHistory(:, :, :, iEpoch, jSample) = derivatives;
+                                this.derivativeHistory(:, :, :, iEpoch, jSample) = derivs;
                             end
                         end
                         iEpoch = iEpoch + 1;
@@ -405,7 +395,7 @@ classdef NeuralNetwork < handle
             
             this.totalTrainingError        = epochTotalOutputError;
             this.meanTrainingError         = epochMeanOutputError;  
-            this.lastSampleTrainingError   = outputError;            
+            this.lastSampleTrainingError   = E;            
                         
             this.hasTrained = 1;
         end
@@ -442,30 +432,30 @@ classdef NeuralNetwork < handle
             totalError = 0;  
             totalL1Error = 0;
             totalL2Error = 0;
-            outputError = 0;   
+            E = 0;   
             switch this.trainingMode
                 case NeuralNetwork.TRAINING_MODE_SAMPLE_BY_SAMPLE
                     for iSample = 1 : this.numSamplesValidation
-                        sampleInputs = inputs(iSample, :);
-                        sampleOutputs = outputs(iSample, :);                 
+                        x = inputs(iSample, :);
+                        Ytable = outputs(iSample, :);                 
+                                                
+                        Ynn = this.calcYnn(x);                                                
+                        E = this.calcError(Ynn, Ytable); 
                         
-                        computedOutputs = this.computeOutputs(sampleInputs);
-                        outputError = this.computeError(computedOutputs, sampleOutputs); 
-                        
-                        totalError = totalError + outputError;
-                        totalL1Error = totalL1Error + this.computeL1Error(computedOutputs, sampleOutputs); 
-                        totalL2Error = totalL2Error + this.computeL2Error(computedOutputs, sampleOutputs); 
+                        totalError = totalError + E;
+                        totalL1Error = totalL1Error + this.calcL1Error(Ynn, Ytable); 
+                        totalL2Error = totalL2Error + this.calcL2Error(Ynn, Ytable); 
                         
                         % ==========================
                         % Record desired information
                         % ==========================
                             
                         if bitand(this.histories, NeuralNetwork.HISTORY_TYPE_VALIDATION_OUTPUTS)
-                            this.validationOutputHistory(iSample, :) = computedOutputs;                                
+                            this.validationOutputHistory(iSample, :) = Ynn;                                
                         end
                         
                         if bitand(this.histories, NeuralNetwork.HISTORY_TYPE_VALIDATION_ERRORS)                                
-                            this.validationErrorHistory(iSample) = outputError;
+                            this.validationErrorHistory(iSample) = E;
                         end
                     end
                 case NeuralNetwork.TRAINING_MODE_BATCH
@@ -478,7 +468,7 @@ classdef NeuralNetwork < handle
             
             this.totalValidationError      = totalError;
             this.meanValidationError       = meanValidationError;
-            this.lastSampleValidationError = outputError;
+            this.lastSampleValidationError = E;
         end
         
         %%
@@ -529,7 +519,7 @@ classdef NeuralNetwork < handle
     %%
     methods (Access = private)                
          
-        %%
+        %% Check if stopping conditions have been met.
         function result = isComplete(this, iEpoch, currentError)
             switch this.terminationMode
                 case NeuralNetwork.TERMINATION_MODE_NONE
@@ -548,102 +538,97 @@ classdef NeuralNetwork < handle
         end
         
         %% Compute output(s) of one sample
-        function [y z] = computeOutputs(this, inputs)                            
+        function [Ynn z] = calcYnn(this, x)                            
             gamma = zeros(this.numHidden, 1);
             z     = zeros(this.numHidden, 1);  
-            y     = zeros(this.numOutputs, 1);
+            Ynn     = zeros(this.numOutputs, 1);
             
-            for kOutput = 1 : this.numOutputs
-                
-                % Initial output value is its bias (layer 4)               
-                y(kOutput) = this.weights(1, kOutput, 4);
-                
-                for jHidden = 1 : this.numHidden                    
-                    switch this.modelType
-                        case NeuralNetwork.MODEL_TYPE_MLP3
-                            % Initial gamma value is the hidden neuron's bias
-                            gamma(jHidden) = this.weights(jHidden, 1, 2);
-
-                            % Add each term together for gamma
-                            for iInput = 1 : this.numInputs                        
-                                gamma(jHidden) = gamma(jHidden) + this.weights(jHidden, iInput, 1) * inputs(iInput);
-                            end
-                            
-                            % Calculate z for this hidden neuron
-                            z(jHidden) = 1 / (1 + exp(-gamma(jHidden)));
-                            
-                        case NeuralNetwork.MODEL_TYPE_RBF
-                            sum = 0;
-                            for iInput = 1 : this.numInputs                        
-                                c = this.weights(jHidden, iInput, 1);
-                                lambda = this.weights(jHidden, iInput, 2);
-                                sum = sum + ((inputs(iInput) - c) / lambda) ^ 2;
-                            end
-                            gamma(jHidden) = sqrt(sum);
-                            
-                            % Calculate z for this hidden neuron
-                            z(jHidden) = exp(-gamma(jHidden)) ^ 2;
+            switch this.modelType
+                case NeuralNetwork.MODEL_TYPE_MLP3
+                    for k = 1 : this.numOutputs
+                        V0k = this.weights(1, k, 4);
+                        Ynn(k) = V0k; % Initial value
+                        for j = 1 : this.numHidden
+                            U0j = this.weights(j, 1, 2);
+                            gamma(j) = U0j; % Initial value
+                            for i = 1 : this.numInputs                        
+                                Uij = this.weights(j, i, 1);
+                                gamma(j) = gamma(j) + Uij * x(i);
+                            end                                                        
+                            z(j) = 1 / (1 + exp(-gamma(j)));
+                        end                        
+                        Vjk = this.weights(j, k, 3);
+                        Ynn(k) = Ynn(k) + Vjk * z(j);
                     end
-                    
-                    % Add this hidden neuron's effect on the current output
-                    y(kOutput) = y(kOutput) + this.weights(jHidden, kOutput, 3) * z(jHidden);
-                end          
+                            
+                case NeuralNetwork.MODEL_TYPE_RBF
+                    for k = 1 : this.numOutputs             
+                        V0k = this.weights(1, k, 4);
+                        Ynn(k) = V0k; % Initial value
+                        for j = 1 : this.numHidden
+                            sum = 0;
+                            for i = 1 : this.numInputs                        
+                                Cij = this.weights(j, i, 1);
+                                LAMBDAij = this.weights(j, i, 2);
+                                sum = sum + ((x(i) - Cij) / LAMBDAij) ^ 2;
+                            end
+                            gamma(j) = sqrt(sum);
+                            z(j) = exp(-gamma(j)) ^ 2;      % TODO: ensure this is correct equation                      
+                        end                        
+                        Vjk = this.weights(j, k, 3);
+                        Ynn(k) = Ynn(k) + Vjk * z(j);
+                    end  
             end
         end
         
         %% 
         % Compute the error of one sample
-        function err = computeError(this, computedOutputs, sampleOutputs)
-            err = 0;
-            for iOutput = 1 : this.numOutputs
-               err = err + .5 * (computedOutputs(iOutput) - sampleOutputs(iOutput))^2;
+        function E = calcError(this, Ynn, Ytable) 
+            E = 0;
+            for k = 1 : this.numOutputs
+               E = E + .5 * (Ynn(k) - Ytable(k)) ^ 2;
             end
         end
         
         %% 
         % Compute the L1 error of one sample
-        function err = computeL1Error(this, computedOutputs, sampleOutputs)
-            err = 0;
-            for iOutput = 1 : this.numOutputs
-               err = err + abs(computedOutputs(iOutput) - sampleOutputs(iOutput));
+        function E = calcL1Error(this, Ynn, Ytable)     
+            E = 0;
+            for k = 1 : this.numOutputs
+               E = E + abs(Ynn(k) - Ytable(k));
             end
         end
 
         %% 
         % Compute the L2 error of one sample
-        function err = computeL2Error(this, computedOutputs, sampleOutputs)
-            err = 0;
-            for iOutput = 1 : this.numOutputs
-               err = err + (computedOutputs(iOutput) - sampleOutputs(iOutput))^2;
+        function E = calcL2Error(this, Ynn, Ytable)
+            E = 0;
+            for k = 1 : this.numOutputs
+               E = E + (Ynn(k) - Ytable(k)) ^ 2;
             end
         end
         
         %%
         % Derivative of the error with respect to each weight. The
-        % derivatives matrix has the same format as the weight matrix (i.e.
+        % derivs matrix has the same format as the weight matrix (i.e.
         % four layers/groups).
-        function derivatives = computeDerivatives(this, computedOutputs, ...
-                sampleInputs, sampleOutputs, z)
+        function derivs = calcDerivs(this, Ynn, x, Ytable, z)
             
-            x = sampleInputs;
-            y = sampleOutputs;
-            ynn = computedOutputs;
-            
-            derivatives = zeros(size(this.weights));
+            derivs = zeros(size(this.weights));
             % Derivative groups:            
-            % a = MLP3 - derivatives of input-hidden layer weights
-            %     RBF  - derivatives of "C" weights
-            % b = MLP3 - derivatives of hidden layer biases
-            %     RBF  - derivatives of "lambda" weights
-            % c = derivatives of hidden-output layer weights
-            % d = derivatives of output layer biases
+            % a = MLP3 - derivs of input-hidden layer weights
+            %     RBF  - derivs of "C" weights
+            % b = MLP3 - derivs of hidden layer biases
+            %     RBF  - derivs of "lambda" weights
+            % c = derivs of hidden-output layer weights
+            % d = derivs of output layer biases
             
             switch this.modelType
                 case NeuralNetwork.MODEL_TYPE_MLP3
                     for k = 1 : this.numOutputs
                         
                         % output bias
-                        d = ynn(k) - y(k);
+                        d = Ynn(k) - Ytable(k);
 
                         for j = 1 : this.numHidden;
 
@@ -658,18 +643,18 @@ classdef NeuralNetwork < handle
                                 % input-hidden weight
                                 a = d * c * z(j) * (1 - z(j)) * x(i);  
                                 
-                                derivatives(j, i, 1) = a;
+                                derivs(j, i, 1) = a;
                             end                            
-                            derivatives(j, 1, 2) = b;
-                            derivatives(j, k, 3) = c;
+                            derivs(j, 1, 2) = b;
+                            derivs(j, k, 3) = c;
                         end                    
-                        derivatives(1, k, 4) = d;
+                        derivs(1, k, 4) = d;
                     end
                 case NeuralNetwork.MODEL_TYPE_RBF
                     for k = 1 : this.numOutputs
                         
                         % output bias
-                        d = ynn(k) - y(k);
+                        d = Ynn(k) - Ytable(k);
 
                         for j = 1 : this.numHidden;
 
@@ -677,10 +662,11 @@ classdef NeuralNetwork < handle
                             c = d * z(j);
                         
                             % Prepare for lambda and C
-                            % summation of: (ynn,k - yk) * Vjk
+                            % summation of: ((ynn,k) - yk) * Vjk
                             sum = 0;
-                            for k2 = 1 : this.numOutputs                               
-                               sum = sum + d * this.weights(j, k2, 3);
+                            for k2 = 1 : this.numOutputs  
+                               Vjk = this.weights(j, k2, 3);
+                               sum = sum + d * Vjk;
                             end
                             
                             for i = 1 : this.numInputs
@@ -690,52 +676,106 @@ classdef NeuralNetwork < handle
                                 lambda = this.weights(j, i, 2);
                                 
                                 b = sum * 2 * z(j) * (x(i) - cw) ^ 2 / lambda ^ 3;
-
                                 
                                 a = sum * 2 * z(j) * (x(i) - cw) / lambda ^ 2;
                                 
-                                derivatives(j, i, 1) = a;
-                                derivatives(j, i, 2) = b;                                
+                                derivs(j, i, 1) = a;
+                                derivs(j, i, 2) = b;                                
                             end                            
-                            derivatives(j, k, 3) = c;
+                            derivs(j, k, 3) = c;
                         end
-                        derivatives(1, k, 4) = d;
+                        derivs(1, k, 4) = d;
                     end 
             end
         end
         
         %%
         % Update weights
-        function updateWeights(this, derivatives)                      
-                 
-            % Update input-hidden link weights (layer 1)
-            for iInput = 1 : this.numInputs                
-                for jHidden = 1 : this.numHidden
-                    this.weights(jHidden, iInput, 1) = this.weights(jHidden, iInput, 1) ...
-                        - derivatives(jHidden, iInput, 1) * this.alpha;
-                end
-            end
-            
-            
-            for jHidden = 1 : this.numHidden
-                
-                % Update hidden neuron biases (layer 2)
-                this.weights(jHidden, 1, 2) = this.weights(jHidden, 1, 2) ...
-                    - derivatives(jHidden, 1, 2) * this.alpha;
+        function updateWeights(this, derivs)                 
+            switch this.modelType
+                case NeuralNetwork.MODEL_TYPE_MLP3 
+                    for i = 1 : this.numInputs                
+                        for j = 1 : this.numHidden                    
+                            Uij = this.weights(j, i, 1);
+                            dUij = derivs(j, i, 1); 
 
-                % Update hidden-output link weights (layer 3)
-                for kOutput = 1 : this.numOutputs                        
-                    this.weights(jHidden, kOutput, 3) = this.weights(jHidden, kOutput, 3) ...
-                        - derivatives(jHidden, kOutput, 3) * this.alpha;                    
-                end
+                            % input-hidden
+                            Uij = Uij - dUij * this.alpha;
+
+                            this.weights(j, i, 1) = Uij;
+                        end
+                    end            
+
+                    for j = 1 : this.numHidden                
+                        U0j = this.weights(j, 1, 2);
+                        dU0j = derivs(j, 1, 2);
+
+                        % hidden bias
+                        U0j = U0j - dU0j * this.alpha;
+
+                        for k = 1 : this.numOutputs   
+                            Vjk = this.weights(j, k, 3);
+                            dVjk = derivs(j, k, 3);
+
+                            % hidden-output
+                            Vjk = Vjk - dVjk * this.alpha;    
+
+                            this.weights(j, k, 3) = Vjk;
+                        end
+                        this.weights(j, 1, 2) = U0j;
+                    end
+
+                    for k = 1 : this.numOutputs 
+                        V0k = this.weights(1, k, 4);
+                        dV0k = derivs(1, k, 4);
+
+                        % output bias
+                        V0k = V0k - dV0k * this.alpha;
+
+                        this.weights(1, k, 4) = V0k;
+                    end
+                case NeuralNetwork.MODEL_TYPE_RBF
+                    for i = 1 : this.numInputs                
+                        for j = 1 : this.numHidden                    
+                            Cij = this.weights(j, i, 1);
+                            dCij = derivs(j, i, 1); 
+                            
+                            LAMBDAij = this.weights(j, i, 2);
+                            dLAMBDAij = derivs(j, i, 2);
+
+                            % input-hidden C
+                            Cij = Cij - dCij * this.alpha;
+                            
+                            % input-hidden LAMBDA
+                            LAMBDAij = LAMBDAij - dLAMBDAij * this.alpha;
+                            
+                            this.weights(j, i, 1) = Cij;
+                            this.weights(j, i, 2) = LAMBDAij;
+                        end
+                    end            
+
+                    for j = 1 : this.numHidden
+                        for k = 1 : this.numOutputs   
+                            Vjk = this.weights(j, k, 3);
+                            dVjk = derivs(j, k, 3);
+
+                            % hidden-output
+                            Vjk = Vjk - dVjk * this.alpha;    
+
+                            this.weights(j, k, 3) = Vjk;
+                        end
+                    end
+
+                    for k = 1 : this.numOutputs 
+                        V0k = this.weights(1, k, 4);
+                        dV0k = derivs(1, k, 4);
+
+                        % output bias
+                        V0k = V0k - dV0k * this.alpha;
+
+                        this.weights(1, k, 4) = V0k;
+                    end
             end
-            
-             % Update output neuron biases (layer 4)
-            for kOutput = 1 : this.numOutputs               
-                this.weights(1, kOutput, 4) = this.weights(1, kOutput, 4) ...
-                    - derivatives(1, kOutput, 4) * this.alpha;  
-            end
-            
         end
     end
 end
