@@ -1,4 +1,6 @@
 classdef NeuralNetwork < handle
+    
+    %% Constants used instead of the corresponding numbers to help ease reading the code.
     properties (Constant)    
        MODEL_TYPE_MLP3 = 1;     % Multi-Layer Perceptron
        MODEL_TYPE_RBF  = 2;     % Radial Basis Function
@@ -33,6 +35,7 @@ classdef NeuralNetwork < handle
        WEIGHT_TYPE_ONES     = 3;
     end
 
+    %% User definable properties
     properties
         modelType           = NeuralNetwork.MODEL_TYPE_RBF;
         weightType          = NeuralNetwork.WEIGHT_TYPE_ONES;
@@ -44,6 +47,7 @@ classdef NeuralNetwork < handle
         histories           = NeuralNetwork.HISTORY_TYPE_ERRORS;
     end
     
+    %% User readable properties, usually read after training/validation.
     properties (SetAccess = private)                      
         % All of the input and output data used for training or validation
         trainingData;
@@ -98,10 +102,10 @@ classdef NeuralNetwork < handle
         hasTrained = 0;        
     end
     
-    
+    %% Public methods accessible by the user.
     methods
         
-        %%
+        %% makeWeightMatrix()
         % Make a matrix for the initial weights of a neural network with
         % the given amount of neurons at each level. The weight matrix has
         % three dimensions/arguments:
@@ -225,8 +229,7 @@ classdef NeuralNetwork < handle
             end
         end
         
-        %%
-        % train()   - Train this neural network using the back-propagation algorithm.
+        %% train() - Train this neural network using the back-propagation algorithm.
         %
         % Required parameters:
         %   data  - m by n matrix; m = samples, n = inputs and outputs
@@ -238,7 +241,7 @@ classdef NeuralNetwork < handle
         %   weights - The initial weights to use, given as a three dimensional
         %             matrix, x-y-z, see makeWeightMatrix() for a
         %             description of its format.       
-        function epochMeanOutputError = train(this, data, numInputs, ...
+        function epochMeanOutputError = train(this, data, numOutputs, ...
                                                      numHidden, initialWeights)
             
             % ===================================
@@ -250,13 +253,17 @@ classdef NeuralNetwork < handle
                 error('train(): Cannot train without data.');
             end
 
-            if nargin < 3 || numInputs < 1
-               error('train(): There must be at least one input.');                           
+            if nargin >= 3
+                if numOutputs < 1
+                    error('train(): There must be at least one output.');  
+                end
+            else
+                numOutputs = 1;
             end      
 
-            numOutputs = size(data, 2) - numInputs; %#ok<*PROP>
-            if numOutputs < 1
-               error('train(): There must be at least one output.'); 
+            numInputs = size(data, 2) - numOutputs; %#ok<*PROP>
+            if numInputs < 1
+               error('train(): There must be at least one input.'); 
             end
 
             numSamples = size(data, 1);
@@ -400,9 +407,7 @@ classdef NeuralNetwork < handle
             this.hasTrained = 1;
         end
         
-        %%
-        % Perform the validation step on data by using the 
-        % weights calculated from training.
+        %% validate() - Perform the validation step on data by using the weights calculated from training.
         function meanValidationError = validate(this, data)
             
             % ========================================
@@ -471,8 +476,7 @@ classdef NeuralNetwork < handle
             this.lastSampleValidationError = E;
         end
         
-        %%
-        % Plot the training and validation errors, if they are available.
+        %% plot() - Plot the training and validation errors, if they are available.
         function plot(this)            
             % Create a new window
             figure('name', strcat(num2str(this.numInputs), ' Input, ', ...
@@ -516,10 +520,10 @@ classdef NeuralNetwork < handle
         end
     end
     
-    %%
+    %% Private methods, only accessible by instances of this class (e.g. 'nn');
     methods (Access = private)                
          
-        %% Check if stopping conditions have been met.
+        %% isComplete() - Check if stopping conditions have been met.
         function result = isComplete(this, iEpoch, currentError)
             switch this.terminationMode
                 case NeuralNetwork.TERMINATION_MODE_NONE
@@ -537,7 +541,7 @@ classdef NeuralNetwork < handle
             end
         end
         
-        %% Compute output(s) of one sample
+        %% calcYnn() - Compute output(s) of one sample
         function [Ynn z] = calcYnn(this, x)                            
             gamma = zeros(this.numHidden, 1);
             z     = zeros(this.numHidden, 1);  
@@ -581,8 +585,7 @@ classdef NeuralNetwork < handle
             end
         end
         
-        %% 
-        % Compute the error of one sample
+        %% calcError() - Compute the error of one sample
         function E = calcError(this, Ynn, Ytable) 
             E = 0;
             for k = 1 : this.numOutputs
@@ -590,8 +593,7 @@ classdef NeuralNetwork < handle
             end
         end
         
-        %% 
-        % Compute the L1 error of one sample
+        %% calcL1Error() - Compute the L1 error of one sample
         function E = calcL1Error(this, Ynn, Ytable)     
             E = 0;
             for k = 1 : this.numOutputs
@@ -599,8 +601,7 @@ classdef NeuralNetwork < handle
             end
         end
 
-        %% 
-        % Compute the L2 error of one sample
+        %% calcL2Error() - Compute the L2 error of one sample
         function E = calcL2Error(this, Ynn, Ytable)
             E = 0;
             for k = 1 : this.numOutputs
@@ -608,7 +609,7 @@ classdef NeuralNetwork < handle
             end
         end
         
-        %%
+        %% calcDerivs()
         % Derivative of the error with respect to each weight. The
         % derivs matrix has the same format as the weight matrix (i.e.
         % four layers/groups).
@@ -651,46 +652,50 @@ classdef NeuralNetwork < handle
                         derivs(1, k, 4) = d;
                     end
                 case NeuralNetwork.MODEL_TYPE_RBF
-                    for k = 1 : this.numOutputs
-                        
+                    
+                    for k = 1 : this.numOutputs                        
                         % output bias
                         d = Ynn(k) - Ytable(k);
-
+                        derivs(1, k, 4) = d;                       
+                    end
+                    
+                    % Prepare for lambda and C
+                    % summation of: ((ynn,k) - yk) * Vjk
+                    sum = zeros(this.numHidden, 1);
+                    for j = 1 : this.numHidden;
+                        for k = 1 : this.numOutputs
+                            Vjk = this.weights(j, k, 3);
+                            sum(j) = sum(j) + d * Vjk;
+                        end
+                    end 
+                    
+                    for k = 1 : this.numOutputs
                         for j = 1 : this.numHidden;
 
                             % hidden-output weight
                             c = d * z(j);
-                        
-                            % Prepare for lambda and C
-                            % summation of: ((ynn,k) - yk) * Vjk
-                            sum = 0;
-                            for k2 = 1 : this.numOutputs  
-                               Vjk = this.weights(j, k2, 3);
-                               sum = sum + d * Vjk;
-                            end
-                            
+
                             for i = 1 : this.numInputs
                                 
                                 % c-weight (not to be confused with derivative group c)
-                                cw = this.weights(j, i, 1);
-                                lambda = this.weights(j, i, 2);
+                                Cij = this.weights(j, i, 1);
+                                LAMBDAij = this.weights(j, i, 2);
                                 
-                                b = sum * 2 * z(j) * (x(i) - cw) ^ 2 / lambda ^ 3;
+                                b = sum(j) * 2 * z(j) * (x(i) - Cij) ^ 2 / LAMBDAij ^ 3;
                                 
-                                a = sum * 2 * z(j) * (x(i) - cw) / lambda ^ 2;
+                                a = sum(j) * 2 * z(j) * (x(i) - Cij) / LAMBDAij ^ 2;
                                 
                                 derivs(j, i, 1) = a;
                                 derivs(j, i, 2) = b;                                
                             end                            
                             derivs(j, k, 3) = c;
                         end
-                        derivs(1, k, 4) = d;
+                        
                     end 
             end
         end
         
-        %%
-        % Update weights
+        %% updateWeights()
         function updateWeights(this, derivs)                 
             switch this.modelType
                 case NeuralNetwork.MODEL_TYPE_MLP3 
