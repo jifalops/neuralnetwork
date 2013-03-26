@@ -30,21 +30,28 @@ classdef NeuralNetwork < handle
        HISTORY_TYPE_ERRORS             = bin2dec('001010');
        HISTORY_TYPE_ALL                = bin2dec('111111');
        
-       WEIGHT_TYPE_I_PLUS_J = 1;
-       WEIGHT_TYPE_RANDOM   = 2;
-       WEIGHT_TYPE_ONES     = 3;
+       INITIAL_WEIGHTS_ALTERNATING = 1;
+       INITIAL_WEIGHTS_CONSTANT    = 2;
+       INITIAL_WEIGHTS_RANDOM      = 3;
     end
 
     %% User definable properties
     properties
-        modelType           = NeuralNetwork.MODEL_TYPE_RBF;
-        weightType          = NeuralNetwork.WEIGHT_TYPE_ONES;
+        modelType           = NeuralNetwork.MODEL_TYPE_MLP3;
+        initialWeightType   = NeuralNetwork.INITIAL_WEIGHTS_ALTERNATING;
         trainingMode        = NeuralNetwork.TRAINING_MODE_SAMPLE_BY_SAMPLE;
-        terminationMode     = NeuralNetwork.TERMINATION_MODE_EPOCHS;          
+        terminationMode     = NeuralNetwork.TERMINATION_MODE_EPOCHS;  
+        histories           = NeuralNetwork.HISTORY_TYPE_ERRORS;
         maxEpochs           = 100;
         maxError            = 0.001;
-        alpha               = 0.1;
-        histories           = NeuralNetwork.HISTORY_TYPE_ERRORS;
+        % When using a dynamic alpha value, the other three alpha
+        % properties will change from their inital values.
+        useDynamicAlpha     = 1;
+        alpha               = 0.1
+        alphaMin            = 0;
+        alphaMax            = 1.0;
+        epsilon             = 0.05; % alpha difference for convergence
+        
     end
     
     %% User readable properties, usually read after training/validation.
@@ -108,23 +115,25 @@ classdef NeuralNetwork < handle
         %% makeWeightMatrix()
         % Make a matrix for the initial weights of a neural network with
         % the given amount of neurons at each level. The weight matrix has
-        % three dimensions/arguments:
+        % three or four dimensions/arguments:
         %   1st: Hidden neuron index, or '1' if there isnt any (output biases)
         %   2nd: Input or output neuron index, or '1' if there isn't any (hidden biases)
         %   3rd: "Layer" or group which this type of weight belongs
         %        (input-hidden, hidden bias, hidden-output, output bias).
+        %   4th: If using a variable alpha, indicates which alpha the
+        %        weights correspond to (1-4)
         %
-        %   e.g.    weights(hidden, input/output, group);
+        %   e.g.    weights(hidden, input/output, group, numAlphas);
         %
-        function weights = makeWeightMatrix(this)
+        function weights = makeWeightMatrix(this, defaultWeight)
             hidden = this.numHidden;
             InputOutput = max(this.numInputs, this.numOutputs);
             abcd = 4; % weight group a, b, c, or d
             
-            weights = zeros(hidden, InputOutput, abcd); 
+            weights = zeros(hidden, InputOutput, abcd);
             
-            switch this.weightType
-                case NeuralNetwork.WEIGHT_TYPE_I_PLUS_J            
+            switch this.initialWeightType
+                case NeuralNetwork.INITIAL_WEIGHTS_ALTERNATING            
                     for j = 1 : this.numHidden
 
                         % Input-Hidden weights (layer 1, or "a")
@@ -138,7 +147,7 @@ classdef NeuralNetwork < handle
                             case NeuralNetwork.MODEL_TYPE_MLP3                                
                                 
                                 % Hidden bias weights
-                                weights(j, 1, 2) = 1;                            
+                                weights(j, 1, 2) = defaultWeight;                            
                             
                             case NeuralNetwork.MODEL_TYPE_RBF
                                 
@@ -147,21 +156,20 @@ classdef NeuralNetwork < handle
                         end
                             
                     end
-
+                        
+                    % Hidden-Output weights (layer 3, or "c")
                     for j = 1 : this.numHidden
                        for k = 1 : this.numOutputs
-                            
-                            % Hidden-Output weights (layer 3, or "c")
-                            weights(j, k, 3) = (-1)^(j + k);
-                            
-                            % Output bias weights (layer 4, or "d")
-                            if j == 1
-                                weights(1, k, 4) = 1;
-                            end                    
+                            weights(j, k, 3) = (-1)^(j + k);                
                        end               
                     end
                     
-                case NeuralNetwork.WEIGHT_TYPE_RANDOM
+                    % Output bias weights (layer 4, or "d")
+                    for k = 1 : this.numOutputs
+                        weights(1, k, 4) = defaultWeight;                                    
+                    end 
+                    
+                case NeuralNetwork.INITIAL_WEIGHTS_RANDOM
                     for j = 1 : this.numHidden
 
                         % Input-Hidden link default weights (layer 1, or "a")
@@ -181,50 +189,20 @@ classdef NeuralNetwork < handle
                         end
                     end
 
+                    % Hidden-Output weights (layer 3, or "c")
                     for j = 1 : this.numHidden
                        for k = 1 : this.numOutputs
-
-                           % Hidden-Output weights (layer 3, or "c")
-                            weights(j, k, 3) = (rand - 0.5) * 2;
-
-                            % Output bias weights (layer 4, or "d")
-                            if j == 1
-                                weights(1, k, 4) = (rand - 0.5) * 2;
-                            end                    
+                            weights(j, k, 3) = (rand - 0.5) * 2;                
                        end               
                     end
-                case NeuralNetwork.WEIGHT_TYPE_ONES
-                    for j = 1 : this.numHidden
-
-                        % Input-Hidden weights (layer 1, or "a")
-                        % (Values for "Cij" in RBF)
-                        for i = 1 : this.numInputs
-                            weights(j, i, 1) = 1;
-                            
-                            if this.modelType == NeuralNetwork.MODEL_TYPE_RBF
-                                % Lambda weights (layer 2, or "b")
-                                weights(j, i, 2) = 1;
-                            end
-                        end
-                                                
-                        if this.modelType == NeuralNetwork.MODEL_TYPE_MLP3
-                            % Hidden biases (layer 2, or "b")
-                            weights(j, 1, 2) = 1;
-                        end
+                    
+                    % Output bias weights (layer 4, or "d")
+                    for k = 1 : this.numOutputs
+                        weights(1, k, 4) = (rand - 0.5) * 2;                                    
                     end
-
-                    for j = 1 : this.numHidden
-                       for k = 1 : this.numOutputs
-
-                           % Hidden-Output weights (layer 3, or "c")
-                            weights(j, k, 3) = 1;
-
-                            % Output bias weights (layer 4, or "d")
-                            if j == 1
-                                weights(1, k, 4) = 1;
-                            end                    
-                       end               
-                    end
+                    
+                case NeuralNetwork.INITIAL_WEIGHTS_CONSTANT
+                    weights(:, :, :) = defaultWeight;
                     
             end
         end
@@ -238,7 +216,8 @@ classdef NeuralNetwork < handle
         % Optional parameters:
         %   numHidden - Number of hidden neurons. Default is the mean number
         %             of inputs and output neurons rounded up (ceiling). 
-        %   weights - The initial weights to use, given as a three dimensional
+        %   weights - The initial weights to use, given as either a scalar 
+        %             used as a default value, or a three dimensional
         %             matrix, x-y-z, see makeWeightMatrix() for a
         %             description of its format.       
         function epochMeanOutputError = train(this, data, numOutputs, ...
@@ -295,9 +274,14 @@ classdef NeuralNetwork < handle
             this.numHidden                 = numHidden; 
             this.numSamplesTraining        = numSamples;
                         
-            weights = this.makeWeightMatrix();  
+            defaultWeight = 1;
+            if max(size(initialWeights)) == 1
+                defaultWeight = initialWeights;
+            end
+            
+            weights = this.makeWeightMatrix(defaultWeight);  
             if nargin >= 5 
-                if size(initialWeights) ~= size(weights)
+                if size(initialWeights) ~= size(weights) && max(size(initialWeights)) > 1
                     error('train(): Size of weight matrix should be %dx%d.', ...
                             size(weights, 1), size(weights, 2));
                 else
@@ -346,7 +330,7 @@ classdef NeuralNetwork < handle
                         epochTotalOutputError = 0;              
                         for jSample = 1 : numSamples
                             x = inputs(jSample, :);
-                            Ytable = outputs(jSample, :);                                                                                    
+                            Ydata = outputs(jSample, :);                                                                                    
                             
                             % =================
                             % Main part of loop 
@@ -364,11 +348,11 @@ classdef NeuralNetwork < handle
                             [Ynn z] = this.calcYnn(x);
                             
                             % Calculate the error of the outputs in this sample                            
-                            E = this.calcError(Ynn, Ytable);                            
+                            E = this.calcError(Ynn, Ydata);                            
                                                                                     
                             % Calculate the error derivs for each weight
-                            % i.e. [a b c d] = calcDerivs(Ynn, x, Ytable, z)
-                            derivs = this.calcDerivs(Ynn, x, Ytable, z);
+                            % i.e. [a b c d] = calcDerivs(Ynn, x, Ydata, z)
+                            derivs = this.calcDerivs(Ynn, x, Ydata, z);
                                                         
                             epochTotalOutputError = epochTotalOutputError + E;
                             
@@ -442,14 +426,14 @@ classdef NeuralNetwork < handle
                 case NeuralNetwork.TRAINING_MODE_SAMPLE_BY_SAMPLE
                     for iSample = 1 : this.numSamplesValidation
                         x = inputs(iSample, :);
-                        Ytable = outputs(iSample, :);                 
+                        Ydata = outputs(iSample, :);                 
                                                 
                         Ynn = this.calcYnn(x);                                                
-                        E = this.calcError(Ynn, Ytable); 
+                        E = this.calcError(Ynn, Ydata); 
                         
                         totalError = totalError + E;
-                        totalL1Error = totalL1Error + this.calcL1Error(Ynn, Ytable); 
-                        totalL2Error = totalL2Error + this.calcL2Error(Ynn, Ytable); 
+                        totalL1Error = totalL1Error + this.calcL1Error(Ynn, Ydata); 
+                        totalL2Error = totalL2Error + this.calcL2Error(Ynn, Ydata); 
                         
                         % ==========================
                         % Record desired information
@@ -586,26 +570,26 @@ classdef NeuralNetwork < handle
         end
         
         %% calcError() - Compute the error of one sample
-        function E = calcError(this, Ynn, Ytable) 
+        function E = calcError(this, Ynn, Ydata) 
             E = 0;
             for k = 1 : this.numOutputs
-               E = E + .5 * (Ynn(k) - Ytable(k)) ^ 2;
+               E = E + .5 * (Ynn(k) - Ydata(k)) ^ 2;
             end
         end
         
         %% calcL1Error() - Compute the L1 error of one sample
-        function E = calcL1Error(this, Ynn, Ytable)     
+        function E = calcL1Error(this, Ynn, Ydata)     
             E = 0;
             for k = 1 : this.numOutputs
-               E = E + abs(Ynn(k) - Ytable(k));
+               E = E + abs(Ynn(k) - Ydata(k));
             end
         end
 
         %% calcL2Error() - Compute the L2 error of one sample
-        function E = calcL2Error(this, Ynn, Ytable)
+        function E = calcL2Error(this, Ynn, Ydata)
             E = 0;
             for k = 1 : this.numOutputs
-               E = E + (Ynn(k) - Ytable(k)) ^ 2;
+               E = E + (Ynn(k) - Ydata(k)) ^ 2;
             end
         end
         
@@ -613,7 +597,7 @@ classdef NeuralNetwork < handle
         % Derivative of the error with respect to each weight. The
         % derivs matrix has the same format as the weight matrix (i.e.
         % four layers/groups).
-        function derivs = calcDerivs(this, Ynn, x, Ytable, z)
+        function derivs = calcDerivs(this, Ynn, x, Ydata, z)
             
             derivs = zeros(size(this.weights));
             % Derivative groups:            
@@ -629,7 +613,7 @@ classdef NeuralNetwork < handle
                     for k = 1 : this.numOutputs
                         
                         % output bias
-                        d = Ynn(k) - Ytable(k);
+                        d = Ynn(k) - Ydata(k);
 
                         for j = 1 : this.numHidden;
 
@@ -655,7 +639,7 @@ classdef NeuralNetwork < handle
                     
                     for k = 1 : this.numOutputs                        
                         % output bias
-                        d = Ynn(k) - Ytable(k);
+                        d = Ynn(k) - Ydata(k);
                         derivs(1, k, 4) = d;                       
                     end
                     
@@ -695,90 +679,110 @@ classdef NeuralNetwork < handle
             end
         end
         
+        %% findAlpha() - Compute what alpha should be used for this update 
+        % TODO: dependent on sample-by-sample method
+        function [alpha E weights] = findAlpha(this, x, Ydata, derivs)
+            a1 = this.alphaMin;
+            a2 = this.alphaMax;
+            diff = a2 - a1;
+            weights = this.weights;
+           
+            
+            a3 = a2 - 0.618 * diff;
+            a4 = a1 + 0.618 * diff;
+            
+            w3 = this.updateWeights(weights, derivs, a3);
+            w4 = this.updateWeights(weights, derivs, a4);
+            
+            Ynn3 = this.calcYnn(x);
+            Ynn4 = this.calcYnn(x); % TODO start passing all necessary parameters and update member variables in the main functions
+            E3 = this.calcError(Ynn, Ydta
+        end
+        
         %% updateWeights()
-        function updateWeights(this, derivs)                 
+        function weights = updateWeights(this, weights, derivs, alpha)                 
             switch this.modelType
                 case NeuralNetwork.MODEL_TYPE_MLP3 
                     for i = 1 : this.numInputs                
                         for j = 1 : this.numHidden                    
-                            Uij = this.weights(j, i, 1);
+                            Uij = weights(j, i, 1);
                             dUij = derivs(j, i, 1); 
 
                             % input-hidden
-                            Uij = Uij - dUij * this.alpha;
+                            Uij = Uij - dUij * alpha;
 
-                            this.weights(j, i, 1) = Uij;
+                            weights(j, i, 1) = Uij;
                         end
                     end            
 
                     for j = 1 : this.numHidden                
-                        U0j = this.weights(j, 1, 2);
+                        U0j = weights(j, 1, 2);
                         dU0j = derivs(j, 1, 2);
 
                         % hidden bias
-                        U0j = U0j - dU0j * this.alpha;
+                        U0j = U0j - dU0j * alpha;
 
                         for k = 1 : this.numOutputs   
-                            Vjk = this.weights(j, k, 3);
+                            Vjk = weights(j, k, 3);
                             dVjk = derivs(j, k, 3);
 
                             % hidden-output
-                            Vjk = Vjk - dVjk * this.alpha;    
+                            Vjk = Vjk - dVjk * alpha;    
 
-                            this.weights(j, k, 3) = Vjk;
+                            weights(j, k, 3) = Vjk;
                         end
-                        this.weights(j, 1, 2) = U0j;
+                        weights(j, 1, 2) = U0j;
                     end
 
                     for k = 1 : this.numOutputs 
-                        V0k = this.weights(1, k, 4);
+                        V0k = weights(1, k, 4);
                         dV0k = derivs(1, k, 4);
 
                         % output bias
-                        V0k = V0k - dV0k * this.alpha;
+                        V0k = V0k - dV0k * alpha;
 
-                        this.weights(1, k, 4) = V0k;
+                        weights(1, k, 4) = V0k;
                     end
                 case NeuralNetwork.MODEL_TYPE_RBF
                     for i = 1 : this.numInputs                
                         for j = 1 : this.numHidden                    
-                            Cij = this.weights(j, i, 1);
+                            Cij = weights(j, i, 1);
                             dCij = derivs(j, i, 1); 
                             
-                            LAMBDAij = this.weights(j, i, 2);
+                            LAMBDAij = weights(j, i, 2);
                             dLAMBDAij = derivs(j, i, 2);
 
                             % input-hidden C
-                            Cij = Cij - dCij * this.alpha;
+                            Cij = Cij - dCij * alpha;
                             
                             % input-hidden LAMBDA
-                            LAMBDAij = LAMBDAij - dLAMBDAij * this.alpha;
+                            LAMBDAij = LAMBDAij - dLAMBDAij * alpha;
                             
-                            this.weights(j, i, 1) = Cij;
-                            this.weights(j, i, 2) = LAMBDAij;
+                            weights(j, i, 1) = Cij;
+                            weights(j, i, 2) = LAMBDAij;
                         end
                     end            
 
                     for j = 1 : this.numHidden
                         for k = 1 : this.numOutputs   
-                            Vjk = this.weights(j, k, 3);
+                            Vjk = weights(j, k, 3);
                             dVjk = derivs(j, k, 3);
 
                             % hidden-output
-                            Vjk = Vjk - dVjk * this.alpha;    
+                            Vjk = Vjk - dVjk * alpha;    
 
-                            this.weights(j, k, 3) = Vjk;
+                            weights(j, k, 3) = Vjk;
                         end
                     end
 
                     for k = 1 : this.numOutputs 
-                        V0k = this.weights(1, k, 4);
+                        V0k = weights(1, k, 4);
                         dV0k = derivs(1, k, 4);
 
                         % output bias
-                        V0k = V0k - dV0k * this.alpha;
+                        V0k = V0k - dV0k * alpha;
 
-                        this.weights(1, k, 4) = V0k;
+                        weights(1, k, 4) = V0k;
                     end
             end
         end
