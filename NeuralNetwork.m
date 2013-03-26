@@ -16,19 +16,20 @@ classdef NeuralNetwork < handle
        
        % Types of histories to remember. These can help analyze the
        % network, but may cost huge amounts of memory for large problems.
-       HISTORY_TYPE_NONE               = bin2dec('000000');
-       HISTORY_TYPE_TRAINING_OUTPUTS   = bin2dec('000001');
-       HISTORY_TYPE_TRAINING_ERRORS    = bin2dec('000010');
-       HISTORY_TYPE_VALIDATION_OUTPUTS = bin2dec('000100');
-       HISTORY_TYPE_VALIDATION_ERRORS  = bin2dec('001000');
-       HISTORY_TYPE_WEIGHTS            = bin2dec('010000');
-       HISTORY_TYPE_DERIVATIVES        = bin2dec('100000');       
+       HISTORY_TYPE_NONE               = bin2dec('0000000');
+       HISTORY_TYPE_TRAINING_OUTPUTS   = bin2dec('0000001');
+       HISTORY_TYPE_TRAINING_ERRORS    = bin2dec('0000010');
+       HISTORY_TYPE_VALIDATION_OUTPUTS = bin2dec('0000100');
+       HISTORY_TYPE_VALIDATION_ERRORS  = bin2dec('0001000');
+       HISTORY_TYPE_WEIGHTS            = bin2dec('0010000');
+       HISTORY_TYPE_DERIVATIVES        = bin2dec('0100000');       
+       HISTORY_TYPE_ALPHAS             = bin2dec('1000000');
        % Combination histories
-       HISTORY_TYPE_TRAINING           = bin2dec('000011');
-       HISTORY_TYPE_VALIDATION         = bin2dec('001100');
-       HISTORY_TYPE_OUTPUTS            = bin2dec('000101');
-       HISTORY_TYPE_ERRORS             = bin2dec('001010');
-       HISTORY_TYPE_ALL                = bin2dec('111111');
+       HISTORY_TYPE_TRAINING           = bin2dec('0000011');
+       HISTORY_TYPE_VALIDATION         = bin2dec('0001100');
+       HISTORY_TYPE_OUTPUTS            = bin2dec('0000101');
+       HISTORY_TYPE_ERRORS             = bin2dec('0001010');
+       HISTORY_TYPE_ALL                = bin2dec('1111111');
        
        INITIAL_WEIGHTS_ALTERNATING = 1;
        INITIAL_WEIGHTS_CONSTANT    = 2;
@@ -40,10 +41,10 @@ classdef NeuralNetwork < handle
         modelType           = NeuralNetwork.MODEL_TYPE_MLP3;
         initialWeightType   = NeuralNetwork.INITIAL_WEIGHTS_ALTERNATING;
         trainingMode        = NeuralNetwork.TRAINING_MODE_SAMPLE_BY_SAMPLE;
-        terminationMode     = NeuralNetwork.TERMINATION_MODE_EPOCHS;  
-        histories           = NeuralNetwork.HISTORY_TYPE_ERRORS;
-        maxEpochs           = 100;
-        maxError            = 0.001;
+        terminationMode     = NeuralNetwork.TERMINATION_MODE_EITHER;  
+        histories           = NeuralNetwork.HISTORY_TYPE_ERRORS + NeuralNetwork.HISTORY_TYPE_ALPHAS;
+        maxEpochs           = 50;
+        maxError            = 0.01;
         % When using a dynamic alpha value, the other three alpha
         % properties will change from their inital values.
         useDynamicAlpha     = 1;
@@ -91,8 +92,7 @@ classdef NeuralNetwork < handle
         % x - sample
         % y - epoch
         trainingErrorHistory;
-        
-        % Record of calculated validation outputs.
+                
         % x - sample
         % y - output
         validationOutputHistory;
@@ -104,7 +104,11 @@ classdef NeuralNetwork < handle
         % of a weight matrix, fourth dimension is the epoch index, fifth
         % dimension is the sample index (always 1 for batch mode).
         weightHistory;    
-        derivativeHistory;    
+        derivativeHistory;  
+        
+        % x - sample
+        % y - epoch
+        alphaHistory;
 
         hasTrained = 0;        
     end
@@ -272,21 +276,18 @@ classdef NeuralNetwork < handle
             this.numInputs                 = numInputs;
             this.numOutputs                = numOutputs;
             this.numHidden                 = numHidden; 
-            this.numSamplesTraining        = numSamples;
-                        
-            defaultWeight = 1;
-            if max(size(initialWeights)) == 1
-                defaultWeight = initialWeights;
-            end
+            this.numSamplesTraining        = numSamples;                                   
             
-            weights = this.makeWeightMatrix(defaultWeight);  
-            if nargin >= 5 
-                if size(initialWeights) ~= size(weights) && max(size(initialWeights)) > 1
+            weights = this.makeWeightMatrix(1);
+            if nargin >= 5
+                if max(size(initialWeights)) > 1 && size(initialWeights) ~= size(weights)
                     error('train(): Size of weight matrix should be %dx%d.', ...
                             size(weights, 1), size(weights, 2));
+                elseif max(size(initialWeights)) == 1 
+                    weights = this.makeWeightMatrix(initialWeights);  
                 else
                     weights = initialWeights;
-                end               
+                end  
             end            
             
             this.weights                   = weights;                        
@@ -327,7 +328,7 @@ classdef NeuralNetwork < handle
             switch this.trainingMode
                 case NeuralNetwork.TRAINING_MODE_SAMPLE_BY_SAMPLE
                     while ~(this.isComplete(iEpoch, epochTotalOutputError))
-                        epochTotalOutputError = 0;              
+                        epochTotalOutputError = 0;
                         for jSample = 1 : numSamples
                             x = inputs(jSample, :);
                             Ydata = outputs(jSample, :);                                                                                    
@@ -340,12 +341,12 @@ classdef NeuralNetwork < handle
                             % first occurance, because initial weights have
                             % already been given).
                             if ~(iEpoch == 1 && jSample == 1)
-                                this.updateWeights(derivs);
+                                this.weights = this.updateWeights(derivs, this.weights, this.alpha);
                             end
                             
                             % Calculate ynn (also return z, so it doesn't
                             % have to be calculated again for the derivs).                            
-                            [Ynn z] = this.calcYnn(x);
+                            [Ynn z] = this.calcYnn(x, this.weights);
                             
                             % Calculate the error of the outputs in this sample                            
                             E = this.calcError(Ynn, Ydata);                            
@@ -353,6 +354,10 @@ classdef NeuralNetwork < handle
                             % Calculate the error derivs for each weight
                             % i.e. [a b c d] = calcDerivs(Ynn, x, Ydata, z)
                             derivs = this.calcDerivs(Ynn, x, Ydata, z);
+                            
+                            if this.useDynamicAlpha
+                               this.alpha = this.findAlpha(x, Ydata, derivs); 
+                            end
                                                         
                             epochTotalOutputError = epochTotalOutputError + E;
                             
@@ -374,6 +379,10 @@ classdef NeuralNetwork < handle
                             
                             if bitand(this.histories, NeuralNetwork.HISTORY_TYPE_DERIVATIVES)
                                 this.derivativeHistory(:, :, :, iEpoch, jSample) = derivs;
+                            end
+                            
+                            if bitand(this.histories, NeuralNetwork.HISTORY_TYPE_ALPHAS)
+                                this.alphaHistory(jSample, iEpoch) = this.alpha;
                             end
                         end
                         iEpoch = iEpoch + 1;
@@ -428,7 +437,7 @@ classdef NeuralNetwork < handle
                         x = inputs(iSample, :);
                         Ydata = outputs(iSample, :);                 
                                                 
-                        Ynn = this.calcYnn(x);                                                
+                        Ynn = this.calcYnn(x, this.weights);                                                
                         E = this.calcError(Ynn, Ydata); 
                         
                         totalError = totalError + E;
@@ -526,7 +535,7 @@ classdef NeuralNetwork < handle
         end
         
         %% calcYnn() - Compute output(s) of one sample
-        function [Ynn z] = calcYnn(this, x)                            
+        function [Ynn z] = calcYnn(this, x, weights)                            
             gamma = zeros(this.numHidden, 1);
             z     = zeros(this.numHidden, 1);  
             Ynn     = zeros(this.numOutputs, 1);
@@ -534,36 +543,36 @@ classdef NeuralNetwork < handle
             switch this.modelType
                 case NeuralNetwork.MODEL_TYPE_MLP3
                     for k = 1 : this.numOutputs
-                        V0k = this.weights(1, k, 4);
+                        V0k = weights(1, k, 4);
                         Ynn(k) = V0k; % Initial value
                         for j = 1 : this.numHidden
-                            U0j = this.weights(j, 1, 2);
+                            U0j = weights(j, 1, 2);
                             gamma(j) = U0j; % Initial value
                             for i = 1 : this.numInputs                        
-                                Uij = this.weights(j, i, 1);
+                                Uij = weights(j, i, 1);
                                 gamma(j) = gamma(j) + Uij * x(i);
                             end                                                        
                             z(j) = 1 / (1 + exp(-gamma(j)));
                         end                        
-                        Vjk = this.weights(j, k, 3);
+                        Vjk = weights(j, k, 3);
                         Ynn(k) = Ynn(k) + Vjk * z(j);
                     end
                             
                 case NeuralNetwork.MODEL_TYPE_RBF
                     for k = 1 : this.numOutputs             
-                        V0k = this.weights(1, k, 4);
+                        V0k = weights(1, k, 4);
                         Ynn(k) = V0k; % Initial value
                         for j = 1 : this.numHidden
                             sum = 0;
                             for i = 1 : this.numInputs                        
-                                Cij = this.weights(j, i, 1);
-                                LAMBDAij = this.weights(j, i, 2);
+                                Cij = weights(j, i, 1);
+                                LAMBDAij = weights(j, i, 2);
                                 sum = sum + ((x(i) - Cij) / LAMBDAij) ^ 2;
                             end
                             gamma(j) = sqrt(sum);
                             z(j) = exp(-gamma(j)) ^ 2;      % TODO: ensure this is correct equation                      
                         end                        
-                        Vjk = this.weights(j, k, 3);
+                        Vjk = weights(j, k, 3);
                         Ynn(k) = Ynn(k) + Vjk * z(j);
                     end  
             end
@@ -681,22 +690,41 @@ classdef NeuralNetwork < handle
         
         %% findAlpha() - Compute what alpha should be used for this update 
         % TODO: dependent on sample-by-sample method
-        function [alpha E weights] = findAlpha(this, x, Ydata, derivs)
+        function alpha = findAlpha(this, x, Ydata, derivs)
             a1 = this.alphaMin;
             a2 = this.alphaMax;
             diff = a2 - a1;
-            weights = this.weights;
-           
+            weights = this.weights;           
             
             a3 = a2 - 0.618 * diff;
             a4 = a1 + 0.618 * diff;
             
-            w3 = this.updateWeights(weights, derivs, a3);
-            w4 = this.updateWeights(weights, derivs, a4);
-            
-            Ynn3 = this.calcYnn(x);
-            Ynn4 = this.calcYnn(x); % TODO start passing all necessary parameters and update member variables in the main functions
-            E3 = this.calcError(Ynn, Ydta
+            alpha = -1;
+            while alpha < 0
+                w3 = this.updateWeights(weights, derivs, a3);
+                w4 = this.updateWeights(weights, derivs, a4);
+
+                Ynn3 = this.calcYnn(x, w3);
+                Ynn4 = this.calcYnn(x, w4); 
+
+                E3 = this.calcError(Ynn3, Ydata);
+                E4 = this.calcError(Ynn4, Ydata);
+
+                if E3 > E4
+                    a1 = a3;
+                    a3 = a4;
+                    a4 = a1 + 0.618 * diff;
+                else
+                    a2 = a4;
+                    a4 = a3;
+                    a3 = a2 - 0.618 * diff;
+                end
+
+                diff = a2 - a1;
+                if diff <= this.epsilon
+                    alpha = a3; % or any a#              
+                end
+            end
         end
         
         %% updateWeights()
