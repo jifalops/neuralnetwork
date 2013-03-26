@@ -43,7 +43,7 @@ classdef NeuralNetwork < handle
         trainingMode        = NeuralNetwork.TRAINING_MODE_SAMPLE_BY_SAMPLE;
         terminationMode     = NeuralNetwork.TERMINATION_MODE_EITHER;  
         histories           = NeuralNetwork.HISTORY_TYPE_ERRORS + NeuralNetwork.HISTORY_TYPE_ALPHAS;
-        maxEpochs           = 50;
+        maxEpochs           = 20;
         maxError            = 0.01;
         % When using a dynamic alpha value, the other three alpha
         % properties will change from their inital values.
@@ -341,7 +341,7 @@ classdef NeuralNetwork < handle
                             % first occurance, because initial weights have
                             % already been given).
                             if ~(iEpoch == 1 && jSample == 1)
-                                this.weights = this.updateWeights(derivs, this.weights, this.alpha);
+                                this.weights = this.updateWeights(this.weights, derivs, this.alpha);
                             end
                             
                             % Calculate ynn (also return z, so it doesn't

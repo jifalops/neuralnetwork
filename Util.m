@@ -5,7 +5,7 @@ classdef Util < handle
        %% 
        % Scale and randomize data (matrix or filename). Use for
        % convenience instead of individual functions.
-       function [data outfile] = scaleAndRandomize(data, numInputs, inputMinValue, inputMaxValue, outputMinValue, outputMaxValue)
+       function [data outfile] = scaleAndRandomize(data, numOutputs, inputMinValue, inputMaxValue, outputMinValue, outputMaxValue)
            if nargin < 2
                error('scaleAndRandomize(): Not enough input arguments.');
            end
@@ -18,11 +18,11 @@ classdef Util < handle
            
            switch nargin
                case 2
-                   data = Util.scale(data, numInputs);
+                   data = Util.scale(data, numOutputs);
                case 4
-                   data = Util.scale(data, numInputs, inputMinValue, inputMaxValue);
+                   data = Util.scale(data, numOutputs, inputMinValue, inputMaxValue);
                case 6
-                   data = Util.scale(data, numInputs, inputMinValue, inputMaxValue, outputMinValue, outputMaxValue);
+                   data = Util.scale(data, numOutputs, inputMinValue, inputMaxValue, outputMinValue, outputMaxValue);
                otherwise
                    error('scaleAndRandomize(): Invalid number of arguments.');
            end
@@ -38,7 +38,7 @@ classdef Util < handle
        % Scale `data` (a matrix or an xls filename) to the given min/max values.
        % default input limits are [-1, 1] default output limits are [0, 1].
        % If data is a filename, filename_scaled.xls will also be written.
-       function [scaled outfile] = scale(data, numInputs, inputMinValue, inputMaxValue, outputMinValue, outputMaxValue) 
+       function [scaled outfile] = scale(data, numOutputs, inputMinValue, inputMaxValue, outputMinValue, outputMaxValue) 
            if nargin < 2
                error('scale(): Not enough input arguments.');
            end
@@ -53,14 +53,14 @@ classdef Util < handle
               error('scale(): Data is empty.'); 
            end
            
-           if numInputs < 1
-              error('scale(): There must be at least one input.'); 
-           end
-           
-           numOutputs = size(data, 2) - numInputs;
-           
            if numOutputs < 1
               error('scale(): There must be at least one output.'); 
+           end
+           
+           numInputs = size(data, 2) - numOutputs;
+           
+           if numInputs < 1
+              error('scale(): There must be at least one input.'); 
            end
            
            numSamples = size(data, 1);
