@@ -52,7 +52,7 @@ classdef NeuralNetwork < handle
         useVariableAlpha    = 1;       
         alphaMin            = 0;
         alphaMax            = 1.0;
-        epsilon             = 0.05;
+        epsilon             = 0.01;
         
     end
     
@@ -718,29 +718,44 @@ classdef NeuralNetwork < handle
             a3 = a2 - 0.618 * (a2 - a1);
             a4 = a1 + 0.618 * (a2 - a1);
             
-            alpha = -1;
-            while alpha < 0
-                w3 = this.updateWeights(weights, derivs, a3);
-                w4 = this.updateWeights(weights, derivs, a4);
+            w3 = this.updateWeights(weights, derivs, a3);
+            w4 = this.updateWeights(weights, derivs, a4);
 
-                Ynn3 = this.calcYnn(x, w3);
-                Ynn4 = this.calcYnn(x, w4); 
+            Ynn3 = this.calcYnn(x, w3);
+            Ynn4 = this.calcYnn(x, w4); 
 
-                E3 = this.calcError(Ynn3, Ydata);
-                E4 = this.calcError(Ynn4, Ydata);
-
+            E3 = this.calcError(Ynn3, Ydata);
+            E4 = this.calcError(Ynn4, Ydata);
+            
+            while 1
                 if E3 > E4
                     a1 = a3;
                     a3 = a4;
                     a4 = a1 + 0.618 * (a2 - a1);
+                    
+                    if (a2 - a1) <= this.epsilon
+                        alpha = a3; % or any a#  
+                        break;
+                    end
+                    
+                    E3 = E4;
+                    w4 = this.updateWeights(weights, derivs, a4);
+                    Ynn4 = this.calcYnn(x, w4); 
+                    E4 = this.calcError(Ynn4, Ydata);
                 else
                     a2 = a4;
                     a4 = a3;
                     a3 = a2 - 0.618 * (a2 - a1);
-                end
-
-                if (a2 - a1) <= this.epsilon
-                    alpha = a3; % or any a#              
+                    
+                    if (a2 - a1) <= this.epsilon
+                        alpha = a3; % or any a#  
+                        break;
+                    end
+                    
+                    E4 = E3;
+                    w3 = this.updateWeights(weights, derivs, a3);
+                    Ynn3 = this.calcYnn(x, w3); 
+                    E3 = this.calcError(Ynn3, Ydata);
                 end
             end
         end
