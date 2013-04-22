@@ -44,7 +44,7 @@ classdef NeuralNetwork < handle
         terminationMode     = NeuralNetwork.TERMINATION_MODE_EITHER;  
         histories           = NeuralNetwork.HISTORY_TYPE_ERRORS + NeuralNetwork.HISTORY_TYPE_ALPHAS;
         
-        maxEpochs           = 40;
+        maxEpochs           = 100;
         maxError            = 0.001;
         
         alphaConstant       = 0.1;
@@ -439,6 +439,35 @@ classdef NeuralNetwork < handle
                     error('plot(): Batch mode is not implemented yet.');
             end                            
         end
+        
+        function E = fitness(this, w)
+         
+            weights = zeros(NeuralNetwork.getWeightSize(this.numInputs, this.numHidden, this.numOutputs));            
+          
+            for i = 1 : this.numInputs
+                for j = 1 : this.numHidden                
+                    weights(j, i, 1) = w((i - 1) * j + j);                    
+                end
+            end
+            
+            for j = 1 : this.numHidden
+                weights(j, 1, 2) = w(this.numHidden * this.numInputs + j);
+                
+                for k = 1 : this.numOutputs
+                    weights(j, k, 3) = w(this.numHidden * this.numInputs + this.numHidden + (j - 1) * k + k);                    
+                end
+            end
+            
+            for k = 1 : this.numOutputs
+                weights(1, k, 4) = w(this.numHidden * this.numInputs + this.numHidden + this.numHidden * this.numOutputs + k);                    
+            end
+            
+            E = 0;
+            for i = 1 : this.numSamplesTraining
+                ynn = this.calcYnn(this.trainingData(i, 1:this.numInputs), weights);
+                E = E + this.calcError(ynn, this.trainingData(i, 4:5));
+            end
+        end
     end
     
     %% Private methods, only accessible by instances of this class (e.g. 'nn');
@@ -456,7 +485,7 @@ classdef NeuralNetwork < handle
         %   e.g.    weights(hidden, input/output, group, numAlphas);
         %
         function weights = makeWeightMatrix(this, numInputs, numHidden, numOutputs, defaultWeight)            
-            if nargin < 3
+            if nargin < 5
                 defaultWeight = 1;
             end
                         
