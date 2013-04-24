@@ -11,9 +11,9 @@
 % u         DE crossed-over particle
 % F         DE mutate scaling factor
 % CR        DE crossover probability
-% dr        DE crossover random dimension index
 % pbest     Particle's best known position
 % gbest     Swarm's best known position
+% gbeste    Error of best position
 % w         PSO inertia weight
 % c1        PSO cognitive factor
 % c2        PSO social factor
@@ -22,22 +22,23 @@
 %
 % pop_hist      Population history
 % err_hist      Error/fitness history
-% gbest_hist    Global best history
+% gbest_hist     Global best weights history
+% gbeste_hist    Global best error history
+
 
 % Input/Output Data Matrix
 %
 %   x-dimension: Each row is a sample
 %   y-dimension: Each column is an input or output variable
-%   z-dimension: Dimension index (objective sampled)
+
 
 % Population Matrix (with history)
 %
 %   x-dimension: Each row consists of two weights
 %   y-dimension: Column 1 = position weights, 
 %                Column 2 = velocity weights
-%   z-dimension: Dimension index (objective being measured)
-% 4th-dimension: Each is a particle/individual (has position and velocity in d dimensions)
-% 5th-dimension: Generation/epoch index
+%   z-dimension: Each is a particle/individual (has position and velocity)
+% 4th-dimension: Generation/epoch index
 
 
 % Error/Fitness Matrix (with history)
@@ -45,16 +46,17 @@
 %   x-dimension: Each row consists of two numbers
 %   y-dimension: Column 1 = particle index (from population), 
 %                Column 2 = error/fitness value
-%   z-dimension: Dimension index
-% 4th-dimension: Generation/epoch index
-
-
-% Global best matrix (with history)
-%
-%   x-dimension: Each row represents gbest for a particular dimension/objective
-%   y-dimension: Column 1 = particle index (from population), 
-%                Column 2 = error/fitness value
 %   z-dimension: Generation/epoch index
+
+
+% Global best weights (with history)
+%
+%   x-dimension: Each row represents weights
+%   y-dimension: Each column is gbest for the generation/epoch
+
+% Global best error (with history)
+%
+%   x-dimension: Each row represents the gbest error for the generation/epoch
 
 %%
 classdef Depso < handle
@@ -65,9 +67,7 @@ classdef Depso < handle
         c2 = 1.496
     end    
     properties % read and write access
-       alpha = 0.1;
-       
-       Fmax  = 2;
+       Fmax  = 1.5;
        Fmin  = 0.2;   
        Lmax = .1;
        Lmin = .01;
@@ -76,22 +76,26 @@ classdef Depso < handle
        Vmax  = 2;
               
        batchMode = 0;
-       popsize = 10;                        
-       numObjectives    = 1;   
-       lsMaxEpochs      = 3;
+       popsize = 20;          
+       lsMaxEpochs = 3;
        numTrainingSamples;
        numTestSamples;
        numInputs;
        numOutputs;
        numHidden;    
        pop;
-       curGen;   
+       gbest;
+       gbeste = 999999999;
+       iGen = 1;   
+       
+       alpha = 0.05;
        
        % Termination conditions (any will stop)
        termGen    = 50;
-       termErr    = 0.001;
-       termImp    = 0.05;   % Avg. improvement
+       termErr    = 0.01;
+       termImp    = 0.01;   % Avg. improvement
        termImpGen = 5;      % over x generations 
+       imp = ones(1, 5); % same num
     end    
     properties (SetAccess = private) % read-only for user
        S          = 1;       
@@ -102,10 +106,11 @@ classdef Depso < handle
     end
     
     properties (Hidden)        
-        curSample;
-        curParticle;     
-        curDim;
-        data;        
+        iSample = 1;
+        iParticle = 1;
+        dataset;  
+        Ex; 
+        canUseEx = 0;        
     end
  
     %%
@@ -113,7 +118,7 @@ classdef Depso < handle
         %%
         % Initialize population
         %
-        function pop = initPop(this, popsize, numInputs, numOutputs, numHidden, numObjectives) 
+        function pop = initPop(this, popsize, numInputs, numOutputs, numHidden) 
             if nargin < 2 || popsize < 1;
                popsize = this.popsize;
             end
@@ -126,155 +131,159 @@ classdef Depso < handle
             if nargin < 5 || numHidden < 1
                numHidden = ceil(mean([numInputs numOutputs]));
             end
-            if nargin < 6 || numObjectives < 1
-               numObjectives = this.numObjectives; 
-            end
-            
-            % MLP
-            numWeights = numHidden * (numInputs + numOutputs + 1) + numOutputs;
-            
-            pop = (rand(numWeights, 2, numObjectives, popsize) - 0.5) * 2;   % [-1,1]
 
-            this.numWeights     = numWeights;
+            this.numWeights = numHidden * (numInputs + numOutputs + 1) + numOutputs;   % MLP
+            this.gbest = zeros(this.numWeights, 2);
+            
+            pop = (rand(this.numWeights, 2, popsize) - 0.5) * 2;   % [-1,1]
+
             this.popsize        = popsize;
             this.pop            = pop;
             this.numInputs      = numInputs;
             this.numOutputs     = numOutputs;
-            this.numHidden      = numHidden;   
-            this.numObjectives  = numObjectives;
+            this.numHidden      = numHidden;
         end
         
         %% 
         % DE-PSO  training
         %
-        function gbest = train(this, data)            
+        function gbeste = train(this, data)            
             if nargin < 2 || (size(data, 2) ~= this.numInputs + this.numOutputs)
                error('No data or wrong number of columns.');
             end 
             
-            this.numTrainingSamples = size(data, 1);  % same number of samples in each objective
-            this.data = data;
-            
-            if this.numObjectives == 1
-               data(:, :, 1) = data;
-            end
-            
-            popsize       = this.popsize;
-            pop           = this.pop;
-            numInputs     = this.numInputs;
-            numOutputs    = this.numOutputs;
-            numHidden     = this.numHidden;
-            numObjectives = this.numObjectives;
-            
-            S             = this.S;
-            
-            gbest = zeros(this.numObjectives, 2);
-            for d = 1 : numObjectives
-                r = randperm(popsize, 1);                
-                this.curParticle = r;    
-                this.curSample = randperm(this.numTrainingSamples, 1);
-                gbest(d, 1) = r;
-                gbest(d, 2) = this.err(pop(:, 1, d, r));   % random particle for each dimension
-            end
+            this.dataset = data;
+            this.numTrainingSamples = size(data, 1);
 
+                %r = randperm(this.popsize, 1);                
+                %this.iParticle = r;    
+                %this.iSample = randperm(this.numTrainingSamples, 1);
+                %gbest(d, 1) = r;
+                %gbest(d, 2) = this.err(pop(:, 1, d, r));   % random particle for each dimension
+             
             
             if this.batchMode
-                
+                error('no soup for you');
             else
-                for k = 1 : this.termGen        % Generation limit  
-                    this.curGen = k;
-                    for sample = 1 : this.numTrainingSamples
-                        this.curSample = sample;
-                        for d = 1 : numObjectives
-                            this.curDim = d;
-                            for i = 1 : popsize     % For each particle 
-                               this.curParticle = i;                               
-                               x = pop(:, :, d, i);
-                               x = this.depso_x(pop, x, S, gbest);                  
+                while ~this.isComplete()                                    
+                    gbeste_tmp = this.gbeste;
+                    for s = 1 : this.numTrainingSamples
+                        this.iSample = s;                       
+                        for i = 1 : this.popsize     % For each particle 
+                            this.iParticle = i;
+                            x = this.pop(:, :, i);
+                            x = this.depso_x(x); 
+                                                        
+                            if this.canUseEx
+                                E = this.Ex;
+                            else
+                                E = this.err(x);
+                            end               
+                                                        
+                            if E < this.gbeste
+                               this.gbest = x;
+                               this.gbeste = E;
                             end
-                        end
+                            
+                            this.pop(:, :, i) = x;
+                        end                         
                     end
+                    
+                    this.imp = circshift(this.imp, [1 1]);
+                    this.imp(1) = abs(gbeste_tmp - this.gbeste) / gbeste_tmp;
+                    
+                    fprintf('Generation %d: E = %f\n', this.iGen, this.gbeste);                                        
 
                     % temporary measure to keep entropy >= 0. entropy * alpha is also an option.
-                    S = abs(S - alpha); 
+                    this.S = abs(this.S - this.alpha); 
+                    this.iGen = this.iGen + 1;
                 end
             end
-            
-        end                
+            gbeste = this.gbeste;
+        end   
+        
+        function result = isComplete(this)
+           result = 0;          %disp(this.iGen);disp(this.termGen);disp(this.gbeste);disp(this.termErr);disp(mean(this.imp));disp(this.termImp);
+           if (this.iGen > this.termGen) || (this.gbeste < this.termErr) ...
+                   || ((mean(this.imp) < this.termImp) && this.S < .3)
+               result = 1;
+           end
+        end
 
         %%
         % DE-PSO for one particle
         %
-        function x = depso_x(this, pop, x, S, gbest)            
-            L = this.Lmin + (this.Lmax - this.Lmin) * (1 - S);            
-            if rand < L
-                x = this.local_search(x);
-            elseif rand < .5
-                x = this.pso(pop, x, gbest);
+        function x = depso_x(this, x)            
+            L = this.Lmin + (this.Lmax - this.Lmin) * (1 - this.S);            
+           % if rand < L
+            %    x = this.local_search(x);
+            %elseif
+            if rand < .5
+                x = this.pso(x);
+                this.canUseEx = 0;
             else                
-                x = this.de(pop, x, S);
+                x = this.de(x);
+                this.canUseEx = 1;
             end
         end
         
         %%
         % DE for one particle
         %
-        function x = de(this, pop, x, S)
-            z = this.de_mutate(pop, x, S);
-            u = this.de_cross(x, z, S);
-            Ex = this.err(x(:, 1, :));
-            Eu = this.err(u(:, 1, :));
-            if Eu < Ex
-                x(:, 1, :) = u;    
+        function x = de(this, x)
+            z = this.de_mutate(x);
+            u = this.de_cross(x, z);
+            this.Ex = this.err(x);
+            Eu = this.err(u);
+            if Eu < this.Ex
+                x = u;
+                this.Ex = Eu;
             end
         end
         
         %%
         % DE Mutate
         %
-        function z = de_mutate(this, pop, x, S)            
-            F = this.Fmin + (this.Fmax - this.Fmin) * S;
-            xr = this.randX(pop, 3, this.curParticle);
+        function z = de_mutate(this, x)            
+            F = this.Fmin + (this.Fmax - this.Fmin) * this.S;
+            xr = this.randX(this.pop, 3, this.iParticle);
             z = x;
-            z(:, 1, :) = xr(:, 1, :, 1) + F * (xr(:, 1, :, 2) - xr(:, 1, :, 3));
+            z(:, 1) = xr(:, 1, 1) + F * (xr(:, 1, 2) - xr(:, 1, 3));
         end
 
         %%
         % DE Crossover
         %
-        function u = de_cross(this, x, z, S)            
-            CR = this.CRmin + (this.CRmax - this.CRmin) * S;            
-            u = zeros(this.numWeights, 1, this.numObjectives);            
-            for d = 1 : this.numObjectives
-                dr = randperm(this.numWeights, 1);    % Using random weight instead of dimension
-                for i = 1 : this.numWeights
-                    if rand < CR || dr == i
-                        u(i, 1, d) = z(i, 1, d);
-                    else
-                        u(i, 1, d) = x(i, 1, d);
-                    end
+        function u = de_cross(this, x, z)            
+            CR = this.CRmin + (this.CRmax - this.CRmin) * this.S;            
+            u = x;            
+            wr = randperm(this.numWeights, 1);    % Using random weight instead of dimension
+            for i = 1 : this.numWeights
+                if rand < CR || wr == i
+                    u(i, 1) = z(i, 1);               
                 end
-            end
+            end            
         end
         
         %%
         % Random position vectors
         %
-        function xr = randX(this, pop, n, ci)  % current i
+        function xr = randX(this, pop, n, iAvoid)  % current i to avoid
             if nargin < 3
                 n = 1;
             end
             if nargin < 4
-                ci = 0;
-            end                        
-            r = randperm(this.popsize, n + 1);
-            xr = zeros(this.numWeights, 1, this.numObjectives, n);
+                iAvoid = 0;
+            end
             
+            r = randperm(this.popsize, n + 1);  % get an extra index in case iAvoid is selected
+            xr = zeros(this.numWeights, 2, n);
+                        
             i = 1;
             count = 1;
             while count <= n
-                if r(i) ~= ci
-                    xr(:, 1, :, count) = pop(:, 1, :, r(i));
+                if r(i) ~= iAvoid
+                    xr(:, :, count) = pop(:, :, r(i));                    
                     count = count + 1;
                 end
                 i = i + 1;
@@ -282,84 +291,69 @@ classdef Depso < handle
         end
 
         %%
-        % Difference of two random positions
+        % Difference of two random particles
         %
         function d = diff(this, pop)
             xr = this.randX(pop, 2);            
-            d = xr(:, 1, :, 1) - xr(:, 1, :, 2);
+            d = xr(:, :, 1) - xr(:, :, 2);
         end       
-
+                
         %%
         % PSO for one particle
         %
-        function x = pso(this, pop, x, gbest)            
-            for d = 1 : this.numObjectives                
-                pbest = diff(pop); % DE operation                 
-                x(:, 2) = x(:, 2) * 0.7298  +  pbest(:, 1) * 1.496 + pop(:, 1, d, gbest(d, 1)) * 1.496; 
-                x(:, 1, d) = x(:, 1, d) + x(:, 2, d);	
-                Ex = this.err(x);                
-                if (Ex < gbest(d, 2))
-                    gbest(d, 1) = this.curParticle;
-                    gbest(d, 2) = Ex;
-                end
-            end
+        function x = pso(this, x)                        
+            pbest = this.diff(this.pop); % DE operation              
+            x(:, 2) = x(:, 2) * 0.7298  +  pbest(:, 1) * 1.496 + this.gbest(:, 1) * 1.496; 
+            x(:, 1) = x(:, 1) + x(:, 2);            
         end
         
         %% 
         % Error of one sample
         %
         function E = err(this, w)
-            Xdata = this.data(this.curSample, 1:this.numInputs, :);
+            Xdata = this.dataset(this.iSample, 1:this.numInputs);
             yStart = this.numInputs + 1;
             yEnd   = yStart + this.numOutputs - 1;
-            Ydata = this.data(this.curSample, yStart:yEnd, :);
+            Ydata = this.dataset(this.iSample, yStart:yEnd);
             
             Ynn = this.calcYnn(Xdata, w);
-            
-            
-            E = zeros(this.numObjectives, 1);
-            for d = 1 : this.numObjectives
-                for k = 1 : this.numOutputs
-                   E(d) = E(d) + .5 * (Ynn(1, k, d) - Ydata(1, k, d)) ^ 2;
-                end
-            end
+                        
+            E = 0;            
+            for k = 1 : this.numOutputs
+               E = E + .5 * (Ynn(k) - Ydata(k)) ^ 2;
+            end            
         end
         
         %%
-        % Calculate Ynn for one sample, multiple dimensions/objectives
+        % Calculate Ynn for one sample
         %
-        function Ynn = calcYnn(this, Xdata, w)  
+        function Ynn = calcYnn(this, Xdata, x)  
             aEnd = this.numHidden * this.numInputs;
             bEnd = aEnd + this.numHidden;
             cEnd = bEnd + this.numHidden * this.numOutputs;
             
-            Ynn = zeros(1, this.numOutputs, this.numObjectives);
-            
-            for d = 1 : this.numObjectives
-                gamma = zeros(this.numHidden);
-                z     = zeros(this.numHidden);  
-                y   = zeros(this.numOutputs);
+            Ynn = zeros(this.numOutputs);                        
+            gamma = zeros(this.numHidden);
+            z     = zeros(this.numHidden);              
 
-                for i = 1 : this.numInputs
-                    for j = 1 : this.numHidden                
-                        gamma(j) = gamma(j) + w((i - 1) * j + j, 1, d) * Xdata(1, i, d);
-                    end
+            for i = 1 : this.numInputs
+                for j = 1 : this.numHidden                
+                    gamma(j) = gamma(j) + x((i - 1) * j + j, 1) * Xdata(i);
                 end
-
-                for j = 1 : this.numHidden
-                    gamma(j) = gamma(j) + w(aEnd + j, 1, d);      % biases
-                    z(j)     = 1 / (1 + exp(-gamma(j)));
-
-                    for k = 1 : this.numOutputs                   
-                        y(k) = y(k) + w(bEnd + (j - 1) * k + k, 1, d);
-                    end
-                end
-
-                for k = 1 : this.numOutputs
-                   y(k) = y(k) + w(cEnd + k, 1, d);           % biases
-                   Ynn(1, k, d) = y(k);
-                end                
             end
+
+            for j = 1 : this.numHidden
+                gamma(j) = gamma(j) + x(aEnd + j, 1);      % biases
+                z(j)     = 1 / (1 + exp(-gamma(j)));
+
+                for k = 1 : this.numOutputs                   
+                    Ynn(k) = Ynn(k) + x(bEnd + (j - 1) * k + k, 1);
+                end
+            end
+
+            for k = 1 : this.numOutputs
+               Ynn(k) = Ynn(k) + x(cEnd + k, 1);           % biases               
+            end                            
         end
 
         %%
