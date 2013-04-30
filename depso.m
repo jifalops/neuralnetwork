@@ -72,8 +72,8 @@ classdef Depso < handle
         
         % DE factors
        Fmax  = 1;
-       Fmin  = 0.5;       
-       CRmin = 1;
+       Fmin  = .5;       
+       CRmin = .9;
        CRmax = 1;
        
        % Local factors
@@ -84,7 +84,7 @@ classdef Depso < handle
        popsize = 20;          
        lsEpochs = 3;
        lsEpochsExtended = 10;  
-       lsDerivThreshold = 0.01; % change when getting random large error means.
+       lsDerivThreshold = 0.01; % change when getting random large error means. (not working)
        numTrainingSamples;
        numTestSamples;
        numInputs;
@@ -95,30 +95,33 @@ classdef Depso < handle
        gbeste = inf;
        iGen;   
        
-       alpha = 1;
-       dist  = 1;    % sort of "distance from goal"
+       alpha = 1;       % entropy decay ("convergence speed") max=1
+       DEvPSO = 1;      % 0 = all DE, 1 = all PSO, .5 = default
+       
+       %dist  = 1;    % sort of "distance from goal"
        
        % Termination conditions (any will stop)
-       termGen    = 100;
-       termErr    = 0.001;
-       termConv   = 0.000001; 
+       termGen    = 500;
+       termErr    = 0.0001;
+       termConv   = 0.00001; 
        termImp    = 0.0001;   % Total improvement
-       termImpGen = 10;      % over x generations 
-       termImpS   = 0.1;    % AND entropy is less than y
+       termImpGen = 10;       % over x generations 
+       termImpS   = 0.05;    % AND entropy is less than y
        imp = ones(1, 10); % same num as termImpGen !!!
     end    
     properties (SetAccess = private) % read-only for user
-       S          = 1;       
+       S = 1;       
        pop_hist;
        err_hist;
        gbest_hist;
        gbeste_hist;
        numWeights;
+       time;
     end
     
     properties (Hidden)                
         iParticle; % used by DE mutate
-        dataset;            % training or validation
+        dataset;   % training or validation
         
         % used for efficency
         Ex; 
@@ -131,7 +134,7 @@ classdef Depso < handle
         % Initialize population
         %
         function pop = initPop(this, popsize, numInputs, numOutputs, numHidden) 
-            if nargin < 2 || popsize < 1;
+            if nargin < 2 || popsize < 5;
                popsize = this.popsize;
             end
             if nargin < 3 || numInputs < 1;
@@ -157,6 +160,19 @@ classdef Depso < handle
         end
         
         %% 
+        % Validation
+        %
+        function err = test(this, data) 
+            if nargin < 2 || (size(data, 2) ~= this.numInputs + this.numOutputs)
+               error('No data or wrong number of columns.');
+            end             
+           this.dataset = data;
+           this.numTestSamples = size(data, 1);
+           err = this.err(this.gbest);
+           fprintf('\nTest Error: %0.7f\n\n', err);
+        end
+        
+        %% 
         % DE-PSO  training
         %
         function gbeste = train(this, data)            
@@ -173,11 +189,11 @@ classdef Depso < handle
             this.pop_hist = zeros(this.numWeights, 2, this.popsize, 2);
             this.err_hist = zeros(this.popsize, 2);
             this.gbest_hist = zeros(this.numWeights, 2);
-            this.gbeste_hist = zeros(2, 1);
-                
-                                
+            this.gbeste_hist = zeros(2, 1);                
+            
             % check initial pop                                                    
             this.iGen = 1;
+            tic;
             for i = 1 : this.popsize                
                 x = this.pop(:, :, i);
                 E = this.err(x);                    
@@ -187,11 +203,13 @@ classdef Depso < handle
                 end
                 this.err_hist(i, this.iGen) = E;
             end
+            this.time(this.iGen) = toc;
             this.pop_hist(:, :, :, this.iGen) = this.pop;
             this.gbest_hist(:, this.iGen) = this.gbest(:, 1);
             this.gbeste_hist(this.iGen) = this.gbeste;
             
-            fprintf('\nGeneration %d: Best Error = %0.10f\n', this.iGen, this.gbeste);                                        
+            fprintf('\nGeneration %d: (%0.2fs)\n', this.iGen, this.time(this.iGen));
+            fprintf('Error: %0.10f\n', this.gbeste);                                   
             fprintf('Mean: %0.10f\n', mean(this.err_hist(:, this.iGen)));
             fprintf('Std.: %0.10f\n', std(this.err_hist(:, this.iGen)));
             
@@ -205,7 +223,8 @@ classdef Depso < handle
                 
                 % Reduce entropy
                 this.S = this.S * (1 - this.alpha);
-                                
+                  
+                tic;
                 for i = 1 : this.popsize   
                     this.iParticle = i;
                     
@@ -227,6 +246,8 @@ classdef Depso < handle
                     end                   
                     this.err_hist(i, this.iGen) = E;
                 end
+                this.time(this.iGen) = toc;
+                
                 this.pop_hist(:, :, :, this.iGen) = this.pop;
                 this.gbest_hist(:, this.iGen) = this.gbest(:, 1);
                 this.gbeste_hist(this.iGen) = this.gbeste;
@@ -234,16 +255,19 @@ classdef Depso < handle
                 this.imp = circshift(this.imp, [1 1]);
                 this.imp(1) = (this.gbeste_hist(this.iGen - 1) - this.gbeste) / this.gbeste_hist(this.iGen - 1);
                                 
-                fprintf('\nGeneration %d: Best Error = %0.10f\n', this.iGen, this.gbeste);                                        
-                fprintf('Mean: %0.10f\n', mean(this.err_hist(:, this.iGen)));
-                fprintf('Std.: %0.10f\n', std(this.err_hist(:, this.iGen)));  
+                fprintf('\nGeneration %d: (%0.2fs)\n', this.iGen, this.time(this.iGen));
+                fprintf('Error: %0.10f\n', this.gbeste);
+                fprintf('Mean:  %0.10f\n', mean(this.err_hist(:, this.iGen)));
+                fprintf('Std.:  %0.10f\n', std(this.err_hist(:, this.iGen)));  
                 
                 this.updatePlot();
             end
             
-            this.gbest = this.local_search(this.gbest, 1);                            
-            gbeste = this.Ex;
-            fprintf('\nBest Error: %0.10f\n', gbeste);
+            %this.gbest = this.local_search(this.gbest, 1);                            
+            %gbeste = this.Ex;
+            gbeste = this.gbeste;
+            fprintf('\nBest Error: %0.7f\n', gbeste);
+            fprintf('Avg. Time:  %0.2f seconds\n\n', mean(this.time));
         end   
         
         %%
@@ -277,7 +301,7 @@ classdef Depso < handle
             if rand < L
                 x = this.local_search(x);
                 this.canUseEx = 1;
-            elseif rand < .5
+            elseif rand < this.DEvPSO
                 x = this.pso(x);
                 this.canUseEx = 0;
             else                           
@@ -381,9 +405,9 @@ classdef Depso < handle
         % Error of one particle (all samples)
         %
         function E = err(this, x)
-            if size(x, 1) == 1
-                x = x'; % using gatool
-            end
+            %if size(x, 1) == 1
+              %  x = x'; % using gatool                          % TODO TEST THIS NOW OK DO IT ASAP SOB
+            %end
             E = 0;
             numSamples = size(this.dataset, 1);
             for i = 1 : numSamples
@@ -404,32 +428,32 @@ classdef Depso < handle
         %%
         % Calculate Ynn for one sample
         %
-        function [Ynn z] = calcYnn(this, Xdata, x)              
+        function [Ynn z] = calcYnn(this, Xdata, w)              
             aEnd = this.numHidden * this.numInputs;
             bEnd = aEnd + this.numHidden;
             cEnd = bEnd + this.numHidden * this.numOutputs;
             
-            Ynn = zeros(this.numOutputs);                        
-            gamma = zeros(this.numHidden);
-            z     = zeros(this.numHidden);              
+            Ynn = zeros(this.numOutputs, 1);                        
+            gamma = zeros(this.numHidden, 1);
+            z     = zeros(this.numHidden, 1);              
 
             for i = 1 : this.numInputs
                 for j = 1 : this.numHidden                
-                    gamma(j) = gamma(j) + x((i - 1) * j + j, 1) * Xdata(i);
+                    gamma(j) = gamma(j) + w((i - 1) * j + j) * Xdata(i);
                 end
             end
 
             for j = 1 : this.numHidden
-                gamma(j) = gamma(j) + x(aEnd + j, 1);      % biases
+                gamma(j) = gamma(j) + w(aEnd + j);      % biases
                 z(j)     = 1 / (1 + exp(-gamma(j)));
 
                 for k = 1 : this.numOutputs                   
-                    Ynn(k) = Ynn(k) + x(bEnd + (j - 1) * k + k, 1);
+                    Ynn(k) = Ynn(k) + w(bEnd + (j - 1) * k + k);
                 end
             end
 
             for k = 1 : this.numOutputs
-               Ynn(k) = Ynn(k) + x(cEnd + k, 1);           % biases               
+               Ynn(k) = Ynn(k) + w(cEnd + k);           % biases               
             end                            
         end
         
