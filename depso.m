@@ -405,9 +405,6 @@ classdef Depso < handle
         % Error of one particle (all samples)
         %
         function E = err(this, x)
-            %if size(x, 1) == 1
-              %  x = x'; % using gatool                          % TODO TEST THIS NOW OK DO IT ASAP SOB
-            %end
             E = 0;
             numSamples = size(this.dataset, 1);
             for i = 1 : numSamples
