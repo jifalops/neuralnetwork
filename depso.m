@@ -96,15 +96,15 @@ classdef Depso < handle
        iGen;   
        
        alpha = 1;       % entropy decay ("convergence speed") max=1
-       DEvPSO = 1;      % 0 = all DE, 1 = all PSO, .5 = default
+       DEvPSO = .5;      % 0 = all DE, 1 = all PSO, .5 = default
        
        %dist  = 1;    % sort of "distance from goal"
        
        % Termination conditions (any will stop)
        termGen    = 500;
-       termErr    = 0.0001;
-       termConv   = 0.00001; 
-       termImp    = 0.0001;   % Total improvement
+       termErr    = 1e-4;
+       termConv   = 1e-6; 
+       termImp    = 1e-4;   % Total improvement
        termImpGen = 10;       % over x generations 
        termImpS   = 0.05;    % AND entropy is less than y
        imp = ones(1, 10); % same num as termImpGen !!!
@@ -117,6 +117,10 @@ classdef Depso < handle
        gbeste_hist;
        numWeights;
        time;
+       
+       % For validation (Ynn and Ydata)
+       predicted;
+       actual;
     end
     
     properties (Hidden)                
@@ -168,6 +172,8 @@ classdef Depso < handle
             end             
            this.dataset = data;
            this.numTestSamples = size(data, 1);
+           this.predicted = zeros(this.numTestSamples, this.numOutputs);
+           this.actual = data(:, (this.numInputs + 1):(this.numInputs + this.numOutputs));
            err = this.err(this.gbest);
            fprintf('\nTest Error: %0.7f\n\n', err);
         end
@@ -414,9 +420,10 @@ classdef Depso < handle
                 Ydata = this.dataset(i, yStart:yEnd);
 
                 Ynn = this.calcYnn(Xdata, x);
-                            
-                for k = 1 : this.numOutputs
-                   E = E + .5 * (Ynn(k) - Ydata(k)) ^ 2;
+                this.predicted(i, :) = Ynn;
+                
+                for k = 1 : this.numOutputs                    
+                   E = E + .5 * (Ynn(k) - Ydata(k)) ^ 2;                   
                 end            
             end
             E = E / numSamples;
@@ -445,7 +452,7 @@ classdef Depso < handle
                 z(j)     = 1 / (1 + exp(-gamma(j)));
 
                 for k = 1 : this.numOutputs                   
-                    Ynn(k) = Ynn(k) + w(bEnd + (j - 1) * k + k);
+                    Ynn(k) = Ynn(k) + w(bEnd + (j - 1) * k + k) * z(j);
                 end
             end
 
